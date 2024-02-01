@@ -126,7 +126,6 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_ruleset":                                       resourcePagerDutyRuleset(),
 			"pagerduty_ruleset_rule":                                  resourcePagerDutyRulesetRule(),
 			"pagerduty_business_service":                              resourcePagerDutyBusinessService(),
-			"pagerduty_service_dependency":                            resourcePagerDutyServiceDependency(),
 			"pagerduty_response_play":                                 resourcePagerDutyResponsePlay(),
 			"pagerduty_tag":                                           resourcePagerDutyTag(),
 			"pagerduty_tag_assignment":                                resourcePagerDutyTagAssignment(),
@@ -157,6 +156,7 @@ func Provider(isMux bool) *schema.Provider {
 	if isMux {
 		delete(p.DataSourcesMap, "pagerduty_business_service")
 		delete(p.ResourcesMap, "pagerduty_business_service")
+		delete(p.ResourcesMap, "pagerduty_service")
 	}
 
 	p.ConfigureContextFunc = func(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
