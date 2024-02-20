@@ -162,6 +162,5 @@ data "pagerduty_service" "no_team_service" {
 data "pagerduty_service" "one_team_service" {
   name = pagerduty_service.one_team_service.name
 }
-
-`, teamname, username, email, service, escalationPolicy)
+`, teamname, username, email, escalationPolicy, service)
 }
