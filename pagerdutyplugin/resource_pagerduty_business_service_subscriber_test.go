@@ -1,10 +1,12 @@
 package pagerduty
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -16,9 +18,9 @@ func TestAccPagerDutyBusinessServiceSubscriber_User(t *testing.T) {
 	email := fmt.Sprintf("%s@foo.test", username)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyBusinessServiceSubscriberDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyBusinessServiceSubscriberDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyBusinessServiceSubscriberConfig(businessServiceName, username, email),
@@ -37,9 +39,9 @@ func TestAccPagerDutyBusinessServiceSubscriber_Team(t *testing.T) {
 	team := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyBusinessServiceSubscriberDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyBusinessServiceSubscriberDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyBusinessServiceSubscriberTeamConfig(businessServiceName, team),
@@ -60,9 +62,9 @@ func TestAccPagerDutyBusinessServiceSubscriber_TeamUser(t *testing.T) {
 	email := fmt.Sprintf("%s@foo.test", username)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyBusinessServiceSubscriberDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyBusinessServiceSubscriberDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyBusinessServiceSubscriberTeamUserConfig(businessServiceName, team, username, email),
@@ -81,7 +83,6 @@ func TestAccPagerDutyBusinessServiceSubscriber_TeamUser(t *testing.T) {
 }
 
 func testAccCheckPagerDutyBusinessServiceSubscriberDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_business_service" {
 			continue
@@ -90,15 +91,20 @@ func testAccCheckPagerDutyBusinessServiceSubscriberDestroy(s *terraform.State) e
 
 		businessServiceID := ids[0]
 
-		response, _, err := client.BusinessServiceSubscribers.List(businessServiceID)
+		ctx := context.Background()
+		o := pagerduty.ListBusinessServiceSubscribersOptions{}
+		response, err := testAccProvider.client.ListBusinessServiceSubscribersWithContext(ctx, businessServiceID, o)
 		if err != nil {
 			// if there are no subscriber for the entity that's okay
 			return nil
 		}
 		// find subscriber the test created
-		for _, subscriber := range response.BusinessServiceSubscribers {
-			if subscriber.ID != "" {
-				return fmt.Errorf("Subscriber %s still exists and is connected to ID %s", subscriber.ID, businessServiceID)
+		for _, subscriber := range response.Subscribers {
+			if subscriber.SubscriberID != "" {
+				return fmt.Errorf(
+					"Subscriber %s still exists and is connected to ID %s",
+					subscriber.SubscriberID, businessServiceID,
+				)
 			}
 		}
 	}
@@ -118,15 +124,16 @@ func testAccCheckPagerDutyBusinessServiceSubscriberExists(n string) resource.Tes
 
 		businessServiceId, subscriberType, subscriberId := ids[0], ids[1], ids[2]
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-		response, _, err := client.BusinessServiceSubscribers.List(businessServiceId)
+		ctx := context.Background()
+		o := pagerduty.ListBusinessServiceSubscribersOptions{}
+		response, err := testAccProvider.client.ListBusinessServiceSubscribersWithContext(ctx, businessServiceId, o)
 		if err != nil {
 			return err
 		}
 		// find tag the test created
 		var isFound bool = false
-		for _, subscriber := range response.BusinessServiceSubscribers {
-			if subscriber.ID == subscriberId && subscriber.Type == subscriberType {
+		for _, subscriber := range response.Subscribers {
+			if subscriber.SubscriberID == subscriberId && subscriber.SubscriberType == subscriberType {
 				isFound = true
 				break
 			}

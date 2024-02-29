@@ -198,3 +198,92 @@ func getBusinessServiceFromResponse(resp *http.Response, err error, decodeFn fun
 
 	return &t, nil
 }
+
+// TODO
+type NotificationSubscriber struct {
+	SubscriberID     string `json:"subscriber_id"`
+	SubscriberType   string `json:"subscriber_type"`
+	SubscribableID   string `json:"subscribable_id"`
+	SubscribableType string `json:"subscribable_type"`
+	AccountID        string `json:"account_id"`
+	Result           string `json:"result"`
+}
+
+// TODO
+type NotificationSubscriberResponse struct {
+	Subscriptions []NotificationSubscriber `json:"subscriptions"`
+}
+
+// TODO
+type CreateBusinessServiceSubscriberOptions struct {
+	Subscribers []NotificationSubscriber `json:"subscribers"`
+}
+
+// CreateBusinessServiceSubscriberWithContext subscribes the given entities to the given Business
+// Service.
+func (c *Client) CreateBusinessServiceSubscriberWithContext(ctx context.Context, id string, o CreateBusinessServiceSubscriberOptions) (*NotificationSubscriberResponse, error) {
+	resp, err := c.post(ctx, "/business_services/"+id+"/subscribers", o, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response NotificationSubscriberResponse
+	if err := c.decodeJSON(resp, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+// TODO
+type ListBusinessServiceSubscribersOptions struct {
+}
+
+// TODO
+type ListBusinessServiceSubscribersResponse struct {
+	APIListObject
+	Subscribers []NotificationSubscriber `json:"subscribers"`
+	AccountID   string                   `json:"account_id"`
+}
+
+// ListBusinessServiceSubscribersWithContext retrieves a list of Notification Subscribers on the
+// Business Service.
+func (c *Client) ListBusinessServiceSubscribersWithContext(ctx context.Context, id string, o ListBusinessServiceSubscribersOptions) (*ListBusinessServiceSubscribersResponse, error) {
+	resp, err := c.get(ctx, "/business_services/"+id+"/subscribers", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response ListBusinessServiceSubscribersResponse
+	if err := c.decodeJSON(resp, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+type DeleteBusinessServiceSubscriberOptions struct {
+	Subscribers []NotificationSubscriber `json:"subscribers"`
+}
+
+type DeleteBusinessServiceSubscriberResponse struct {
+	DeletedCount      int `json:"deleted_count"`
+	UnauthorizedCount int `json:"unauthorized_count"`
+	NonExistentCount  int `json:"non_existent_count"`
+}
+
+// DeleteBusinessServiceSubscriberWithContext subscribes the given entities to the given Business
+// Service.
+func (c *Client) DeleteBusinessServiceSubscriberWithContext(ctx context.Context, id string, o DeleteBusinessServiceSubscriberOptions) (*DeleteBusinessServiceSubscriberResponse, error) {
+	resp, err := c.post(ctx, "/business_services/"+id+"/unsubscribe", o, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response DeleteBusinessServiceSubscriberResponse
+	if err := c.decodeJSON(resp, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
