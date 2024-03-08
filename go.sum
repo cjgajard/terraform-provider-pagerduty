@@ -1,7 +1,7 @@
 dario.cat/mergo v1.0.0 h1:AGCNq9Evsj31mOgNPcLyXc+4PNABt905YmuqPYYpBWk=
 github.com/Microsoft/go-winio v0.6.1 h1:9/kr64B9VUZrLm5YYwbGtUJnMgqWVOdUAXu6Migciow=
-github.com/PagerDuty/go-pagerduty v1.8.1-0.20240118191642-803061c27c20 h1:k7haBQ/LrRuzaB7NW1/5ElenMTCoXfU6nlySCO88xt4=
-github.com/PagerDuty/go-pagerduty v1.8.1-0.20240118191642-803061c27c20/go.mod h1:ilimTqwHSBjmvKeYA/yayDBZvzf/CX4Pwa9Qbhekzok=
+github.com/PagerDuty/go-pagerduty v1.8.1-0.20240318132103-540e8aa159d1 h1:ok3M1XDec1uu5qWWkdIiJpxJ7rL+sbkV3uimJL+pY0M=
+github.com/PagerDuty/go-pagerduty v1.8.1-0.20240318132103-540e8aa159d1/go.mod h1:ilimTqwHSBjmvKeYA/yayDBZvzf/CX4Pwa9Qbhekzok=
 github.com/ProtonMail/go-crypto v0.0.0-20230923063757-afb1ddc0824c h1:kMFnB0vCcX7IL/m9Y5LO+KQYv+t1CQOiFe6+SV2J7bE=
 github.com/ProtonMail/go-crypto v0.0.0-20230923063757-afb1ddc0824c/go.mod h1:EjAoLdwvbIOoOQr3ihjnSoLZRtE8azugULFRteWMNc0=
 github.com/agext/levenshtein v1.2.3 h1:YB2fHEn0UJagG8T1rrWknE3ZQzWM06O8AMAatNn7lmo=

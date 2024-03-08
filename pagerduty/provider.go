@@ -153,6 +153,7 @@ func Provider(isMux bool) *schema.Provider {
 	if isMux {
 		delete(p.DataSourcesMap, "pagerduty_business_service")
 		delete(p.ResourcesMap, "pagerduty_business_service")
+		delete(p.ResourcesMap, "pagerduty_team")
 	}
 
 	p.ConfigureContextFunc = func(ctx context.Context, d *schema.ResourceData) (interface{}, diag.Diagnostics) {
