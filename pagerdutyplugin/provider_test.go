@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
@@ -12,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	pd "github.com/PagerDuty/terraform-provider-pagerduty/pagerduty"
+	"github.com/PagerDuty/terraform-provider-pagerduty/util"
 )
 
 var testAccProvider = New()
@@ -68,4 +70,18 @@ func testAccProtoV5ProviderFactories() map[string]func() (tfprotov5.ProviderServ
 			return muxServer.ProviderServer(), nil
 		},
 	}
+}
+
+// testAccTimeNow returns the current time in the given location.
+// The location defaults to Europe/Dublin but can be controlled by the
+// PAGERDUTY_TIME_ZONE environment variable. The location must match the
+// PagerDuty account time zone or diff issues might bubble up in tests.
+func testAccTimeNow() time.Time {
+	name := "Europe/Dublin"
+
+	if v := os.Getenv("PAGERDUTY_TIME_ZONE"); v != "" {
+		name = v
+	}
+
+	return util.TimeNowInLoc(name)
 }

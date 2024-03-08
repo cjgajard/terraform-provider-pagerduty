@@ -63,7 +63,7 @@ func SuppressRFC3339Diff(k, oldTime, newTime string, d *schema.ResourceData) boo
 func SuppressScheduleLayerStartDiff(k, oldTime, newTime string, d *schema.ResourceData) bool {
 	oldT, newT, err := ParseRFC3339Time(k, oldTime, newTime)
 	if err != nil {
-		log.Printf(err.Error())
+		log.Println(err.Error())
 		return false
 	}
 
@@ -276,6 +276,19 @@ func ResourcePagerDutyParseColonCompoundID(id string) (string, string, error) {
 	}
 
 	return parts[0], parts[1], nil
+}
+
+// TimeNowInLoc returns the current time in the given location.
+// If an error occurs when trying to load the location, we just return the
+// current local time.
+func TimeNowInLoc(name string) time.Time {
+	loc, err := time.LoadLocation(name)
+	now := time.Now()
+	if err != nil {
+		log.Printf("[WARN] Failed to load location: %s", err)
+		return now
+	}
+	return now.In(loc)
 }
 
 func ValidateTZValueDiagFunc(v interface{}, p cty.Path) diag.Diagnostics {
