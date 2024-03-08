@@ -1,30 +1,30 @@
 package pagerduty
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
-func testSweepMaintenanceWindow(region string) error {
-	config, err := sharedConfigForRegion(region)
-	if err != nil {
-		return err
-	}
+func init() {
+	resource.AddTestSweepers("pagerduty_maintenance_window", &resource.Sweeper{
+		Name: "pagerduty_maintenance_window",
+		F:    testSweepMaintenanceWindow,
+	})
+}
 
-	client, err := config.Client()
-	if err != nil {
-		return err
-	}
+func testSweepMaintenanceWindow(_ string) error {
+	ctx := context.Background()
 
-	resp, _, err := client.MaintenanceWindows.List(&pagerduty.ListMaintenanceWindowsOptions{})
+	resp, err := testAccProvider.client.ListMaintenanceWindowsWithContext(ctx, pagerduty.ListMaintenanceWindowsOptions{})
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func testSweepMaintenanceWindow(region string) error {
 	for _, window := range resp.MaintenanceWindows {
 		if strings.HasPrefix(window.Description, "test") || strings.HasPrefix(window.Description, "tf-") {
 			log.Printf("Destroying maintenance window %s (%s)", window.Description, window.ID)
-			if _, err := client.MaintenanceWindows.Delete(window.ID); err != nil {
+			if err := testAccProvider.client.DeleteMaintenanceWindowWithContext(ctx, window.ID); err != nil {
 				return err
 			}
 		}
@@ -43,16 +43,16 @@ func testSweepMaintenanceWindow(region string) error {
 
 func TestAccPagerDutyMaintenanceWindow_Basic(t *testing.T) {
 	window := fmt.Sprintf("tf-%s", acctest.RandString(5))
-	windowStartTime := timeNowInAccLoc().Add(24 * time.Hour).Format(time.RFC3339)
-	windowEndTime := timeNowInAccLoc().Add(48 * time.Hour).Format(time.RFC3339)
+	windowStartTime := testAccTimeNow().Add(24 * time.Hour).Format(time.RFC3339)
+	windowEndTime := testAccTimeNow().Add(48 * time.Hour).Format(time.RFC3339)
 	windowUpdated := fmt.Sprintf("tf-%s", acctest.RandString(5))
-	windowUpdatedStartTime := timeNowInAccLoc().Add(48 * time.Hour).Format(time.RFC3339)
-	windowUpdatedEndTime := timeNowInAccLoc().Add(72 * time.Hour).Format(time.RFC3339)
+	windowUpdatedStartTime := testAccTimeNow().Add(48 * time.Hour).Format(time.RFC3339)
+	windowUpdatedEndTime := testAccTimeNow().Add(72 * time.Hour).Format(time.RFC3339)
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyAddonDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyMaintenanceWindowDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyMaintenanceWindowConfig(window, windowStartTime, windowEndTime),
@@ -71,22 +71,27 @@ func TestAccPagerDutyMaintenanceWindow_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyMaintenanceWindowDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
+	ctx := context.Background()
+
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_maintenance_window" {
 			continue
 		}
 
-		if _, _, err := client.MaintenanceWindows.Get(r.Primary.ID); err == nil {
+		opts := pagerduty.GetMaintenanceWindowOptions{}
+		if _, err := testAccProvider.client.GetMaintenanceWindowWithContext(ctx, r.Primary.ID, opts); err == nil {
 			return fmt.Errorf("maintenance window still exists")
 		}
 
 	}
+
 	return nil
 }
 
 func testAccCheckPagerDutyMaintenanceWindowExists(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
+		ctx := context.Background()
+
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
 			return fmt.Errorf("Not found: %s", n)
@@ -96,9 +101,8 @@ func testAccCheckPagerDutyMaintenanceWindowExists(n string) resource.TestCheckFu
 			return fmt.Errorf("No maintenance window ID is set")
 		}
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-
-		found, _, err := client.MaintenanceWindows.Get(rs.Primary.ID)
+		opts := pagerduty.GetMaintenanceWindowOptions{}
+		found, err := testAccProvider.client.GetMaintenanceWindowWithContext(ctx, rs.Primary.ID, opts)
 		if err != nil {
 			return err
 		}

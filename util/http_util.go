@@ -8,12 +8,16 @@ import (
 	"github.com/PagerDuty/go-pagerduty"
 )
 
-func IsBadRequestError(err error) bool {
+func IsStatusCodeError(err error, errCode int) bool {
 	var apiErr pagerduty.APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == http.StatusBadRequest
+		return apiErr.StatusCode == errCode
 	}
 	return false
+}
+
+func IsBadRequestError(err error) bool {
+	return IsStatusCodeError(err, http.StatusBadRequest)
 }
 
 var notFoundErrorRegexp = regexp.MustCompile(".*: 404 Not Found$")

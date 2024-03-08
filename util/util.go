@@ -76,7 +76,7 @@ func SuppressRFC3339Diff(k, oldTime, newTime string, d *schema.ResourceData) boo
 func SuppressScheduleLayerStartDiff(k, oldTime, newTime string, d *schema.ResourceData) bool {
 	oldT, newT, err := ParseRFC3339Time(k, oldTime, newTime)
 	if err != nil {
-		log.Printf(err.Error())
+		log.Println(err.Error())
 		return false
 	}
 

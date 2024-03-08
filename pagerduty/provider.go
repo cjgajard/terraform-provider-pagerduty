@@ -109,7 +109,6 @@ func Provider(isMux bool) *schema.Provider {
 		ResourcesMap: map[string]*schema.Resource{
 			"pagerduty_addon":                                         resourcePagerDutyAddon(),
 			"pagerduty_escalation_policy":                             resourcePagerDutyEscalationPolicy(),
-			"pagerduty_maintenance_window":                            resourcePagerDutyMaintenanceWindow(),
 			"pagerduty_schedule":                                      resourcePagerDutySchedule(),
 			"pagerduty_service":                                       resourcePagerDutyService(),
 			"pagerduty_service_integration":                           resourcePagerDutyServiceIntegration(),
@@ -196,7 +195,7 @@ func handleNotFoundError(err error, d *schema.ResourceData) error {
 	return genError(err, d)
 }
 
-func providerConfigureContextFunc(ctx context.Context, data *schema.ResourceData, terraformVersion string) (interface{}, diag.Diagnostics) {
+func providerConfigureContextFunc(_ context.Context, data *schema.ResourceData, terraformVersion string) (interface{}, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	serviceRegion := strings.ToLower(data.Get("service_region").(string))
 
@@ -226,7 +225,7 @@ func providerConfigureContextFunc(ctx context.Context, data *schema.ResourceData
 		if err := validateAuthMethodConfig(data); err != nil {
 			diag := diag.Diagnostic{
 				Severity: diag.Warning,
-				Summary:  fmt.Sprint("`token` and `use_app_oauth_scoped_token` are both configured at the same time"),
+				Summary:  "`token` and `use_app_oauth_scoped_token` are both configured at the same time",
 				Detail:   err.Error(),
 			}
 			diags = append(diags, diag)
