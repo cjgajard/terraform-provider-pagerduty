@@ -84,7 +84,6 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_schedule":                        dataSourcePagerDutySchedule(),
 			"pagerduty_user":                            dataSourcePagerDutyUser(),
 			"pagerduty_users":                           dataSourcePagerDutyUsers(),
-			"pagerduty_license":                         dataSourcePagerDutyLicense(),
 			"pagerduty_licenses":                        dataSourcePagerDutyLicenses(),
 			"pagerduty_user_contact_method":             dataSourcePagerDutyUserContactMethod(),
 			"pagerduty_team":                            dataSourcePagerDutyTeam(),
