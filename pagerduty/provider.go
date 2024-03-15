@@ -91,7 +91,6 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_vendor":                          dataSourcePagerDutyVendor(),
 			"pagerduty_extension_schema":                dataSourcePagerDutyExtensionSchema(),
 			"pagerduty_service":                         dataSourcePagerDutyService(),
-			"pagerduty_service_integration":             dataSourcePagerDutyServiceIntegration(),
 			"pagerduty_business_service":                dataSourcePagerDutyBusinessService(),
 			"pagerduty_priority":                        dataSourcePagerDutyPriority(),
 			"pagerduty_ruleset":                         dataSourcePagerDutyRuleset(),
@@ -104,6 +103,7 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_incident_workflow":               dataSourcePagerDutyIncidentWorkflow(),
 			"pagerduty_incident_custom_field":           dataSourcePagerDutyIncidentCustomField(),
 			"pagerduty_team_members":                    dataSourcePagerDutyTeamMembers(),
+			"pagerduty_service_integration":             dataSourcePagerDutyServiceIntegration(),
 		},
 
 		ResourcesMap: map[string]*schema.Resource{
@@ -152,6 +152,7 @@ func Provider(isMux bool) *schema.Provider {
 
 	if isMux {
 		delete(p.DataSourcesMap, "pagerduty_business_service")
+		delete(p.DataSourcesMap, "pagerduty_service_integration")
 		delete(p.ResourcesMap, "pagerduty_business_service")
 	}
 
