@@ -51,6 +51,7 @@ func (p *Provider) DataSources(ctx context.Context) [](func() datasource.DataSou
 	return [](func() datasource.DataSource){
 		func() datasource.DataSource { return &dataSourceBusinessService{} },
 		func() datasource.DataSource { return &dataSourceLicense{} },
+		func() datasource.DataSource { return &dataSourceLicenses{} },
 		func() datasource.DataSource { return &dataSourceStandardsResourceScores{} },
 		func() datasource.DataSource { return &dataSourceStandardsResourcesScores{} },
 		func() datasource.DataSource { return &dataSourceStandards{} },
