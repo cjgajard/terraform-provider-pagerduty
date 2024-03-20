@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"github.com/PagerDuty/go-pagerduty"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
 
 func IsBadRequestError(err error) bool {
@@ -34,4 +35,21 @@ func IsNotFoundError(err error) bool {
 	// and fallback to a simple text error message that can be capture by
 	// this regexp.
 	return notFoundErrorRegexp.MatchString(err.Error())
+}
+
+type RetryNotFoundType bool
+
+const (
+	RetryNotFound    RetryNotFoundType = true
+	NonRetryNotFound                   = false
+)
+
+func NewRetryError(err error, retryNotFound RetryNotFoundType) *retry.RetryError {
+	if IsBadRequestError(err) {
+		return retry.NonRetryableError(err)
+	}
+	if !bool(retryNotFound) && IsNotFoundError(err) {
+		return retry.NonRetryableError(err)
+	}
+	return retry.RetryableError(err)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
+// Deprecated: Migrated to pagerdutyplugin.resourceUser. Kept for testing purposes.
 func resourcePagerDutyUser() *schema.Resource {
 	return &schema.Resource{
 		Create: resourcePagerDutyUserCreate,
