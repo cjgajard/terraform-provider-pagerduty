@@ -1,17 +1,21 @@
 package pagerduty
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAccDataSourcePagerDutyVendor_Basic(t *testing.T) {
 	dataSourceName := "data.pagerduty_vendor.foo"
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyScheduleDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyScheduleDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccDataSourcePagerDutyVendorConfig,
@@ -27,15 +31,15 @@ func TestAccDataSourcePagerDutyVendor_Basic(t *testing.T) {
 func TestAccDataSourcePagerDutyVendor_ExactMatch(t *testing.T) {
 	dataSourceName := "data.pagerduty_vendor.foo"
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyScheduleDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyScheduleDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccDataSourcePagerDutyExactMatchConfig,
 				Check: resource.ComposeTestCheckFunc(
-					resource.TestCheckResourceAttr(dataSourceName, "id", "PKAPG94"),
-					resource.TestCheckResourceAttr(dataSourceName, "name", "Sentry"),
+					resource.TestCheckResourceAttr(dataSourceName, "id", "PAM4FGS"),
+					resource.TestCheckResourceAttr(dataSourceName, "name", "Datadog"),
 				),
 			},
 		},
@@ -45,9 +49,9 @@ func TestAccDataSourcePagerDutyVendor_ExactMatch(t *testing.T) {
 func TestAccDataSourcePagerDutyVendor_SpecialChars(t *testing.T) {
 	dataSourceName := "data.pagerduty_vendor.foo"
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyScheduleDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyScheduleDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccDataSourcePagerDutySpecialCharsConfig,
@@ -60,6 +64,21 @@ func TestAccDataSourcePagerDutyVendor_SpecialChars(t *testing.T) {
 	})
 }
 
+func testAccCheckPagerDutyScheduleDestroy(s *terraform.State) error {
+	ctx := context.Background()
+	for _, r := range s.RootModule().Resources {
+		if r.Type != "pagerduty_schedule" {
+			continue
+		}
+		o := pagerduty.GetScheduleOptions{}
+		_, err := testAccProvider.client.GetScheduleWithContext(ctx, r.Primary.ID, o)
+		if err == nil {
+			return fmt.Errorf("Schedule still exists")
+		}
+	}
+	return nil
+}
+
 const testAccDataSourcePagerDutyVendorConfig = `
 data "pagerduty_vendor" "foo" {
   name = "cloudwatch"
@@ -68,7 +87,7 @@ data "pagerduty_vendor" "foo" {
 
 const testAccDataSourcePagerDutyExactMatchConfig = `
 data "pagerduty_vendor" "foo" {
-  name = "sentry"
+  name = "datadog"
 }
 `
 
