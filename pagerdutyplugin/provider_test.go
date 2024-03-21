@@ -2,6 +2,7 @@ package pagerduty
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
+	"github.com/PagerDuty/go-pagerduty"
 	pd "github.com/PagerDuty/terraform-provider-pagerduty/pagerduty"
 )
 
@@ -68,4 +70,17 @@ func testAccProtoV5ProviderFactories() map[string]func() (tfprotov5.ProviderServ
 			return muxServer.ProviderServer(), nil
 		},
 	}
+}
+
+func testAccCheckPagerDutyUserDestroy(s *terraform.State) error {
+	for _, r := range s.RootModule().Resources {
+		if r.Type != "pagerduty_user" {
+			continue
+		}
+		ctx := context.Background()
+		if _, err := testAccProvider.client.GetUserWithContext(ctx, r.Primary.ID, pagerduty.GetUserOptions{}); err == nil {
+			return fmt.Errorf("User still exists")
+		}
+	}
+	return nil
 }
