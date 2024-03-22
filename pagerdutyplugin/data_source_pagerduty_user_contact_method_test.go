@@ -17,8 +17,8 @@ func TestAccDataSourcePagerDutyUserContactMethod_Basic(t *testing.T) {
 	label := "Work"
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:  func() { testAccPreCheck(t) },
-		Providers: testAccProviders,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccDataSourcePagerDutyUserContactMethodConfig(name, method_type, address, second_address, label),
