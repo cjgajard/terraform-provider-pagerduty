@@ -15,7 +15,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
@@ -35,7 +37,8 @@ func (r *resourceMaintenanceWindow) Schema(_ context.Context, _ resource.SchemaR
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Computed: true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				Computed:      true,
 			},
 			"start_time": schema.StringAttribute{
 				Required:   true,
@@ -46,9 +49,10 @@ func (r *resourceMaintenanceWindow) Schema(_ context.Context, _ resource.SchemaR
 				CustomType: timetypes.RFC3339Type{},
 			},
 			"description": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("Managed by Terraform"),
+				Optional:      true,
+				Computed:      true,
+				Default:       stringdefault.StaticString("Managed by Terraform"),
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"services": schema.SetAttribute{
 				Required:    true,
@@ -69,8 +73,7 @@ func (r *resourceMaintenanceWindow) Create(ctx context.Context, req resource.Cre
 	plan := buildPagerdutyMaintenanceWindow(ctx, &model, &resp.Diagnostics)
 	log.Printf("[INFO] Creating PagerDuty maintenance window")
 
-	from := "user@email.com" // TODO
-	mw, err := r.client.CreateMaintenanceWindowWithContext(ctx, from, plan)
+	mw, err := r.client.CreateMaintenanceWindowWithContext(ctx, "", plan)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error creating PagerDuty maintenance window",
@@ -130,12 +133,12 @@ func (r *resourceMaintenanceWindow) Update(ctx context.Context, req resource.Upd
 	}
 
 	plan := buildPagerdutyMaintenanceWindow(ctx, &model, &resp.Diagnostics)
-	if plan.ID == "" {
-		var id string
-		req.State.GetAttribute(ctx, path.Root("id"), &id)
-		plan.ID = id
-	}
 	log.Printf("[INFO] Updating PagerDuty maintenance window %s", plan.ID)
+
+	if checkTimeIsBeforeNow(plan.StartTime) {
+		// Prevent error when updating on-going maintenance windows
+		plan.StartTime = ""
+	}
 
 	maintenanceWindow, err := r.client.UpdateMaintenanceWindowWithContext(ctx, plan)
 	if err != nil {
@@ -193,6 +196,7 @@ func buildPagerdutyMaintenanceWindow(ctx context.Context, model *resourceMainten
 		Services:    buildMaintenanceWindowServices(ctx, model.Services, diags),
 		Description: model.Description.ValueString(),
 	}
+	maintenanceWindow.ID = model.ID.ValueString()
 	return maintenanceWindow
 }
 
@@ -242,4 +246,14 @@ func flattenMaintenanceWindowServices(services []pagerduty.APIObject) types.Set 
 		elements = append(elements, types.StringValue(s.ID))
 	}
 	return types.SetValueMust(types.StringType, elements)
+}
+
+// checkTimeIsBeforeNow tests whether a strings contains a valid RFC3339 time
+// and if that value happened before the system clock's current time.
+func checkTimeIsBeforeNow(timeString string) bool {
+	t, err := time.Parse(time.RFC3339, timeString)
+	if err != nil {
+		return false
+	}
+	return t.Before(time.Now())
 }
