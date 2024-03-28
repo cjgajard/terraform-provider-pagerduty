@@ -152,6 +152,7 @@ func Provider(isMux bool) *schema.Provider {
 
 	if isMux {
 		delete(p.DataSourcesMap, "pagerduty_business_service")
+		delete(p.DataSourcesMap, "pagerduty_escalation_policy")
 		delete(p.ResourcesMap, "pagerduty_business_service")
 	}
 
