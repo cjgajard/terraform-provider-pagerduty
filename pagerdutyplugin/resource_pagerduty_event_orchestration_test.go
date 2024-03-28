@@ -1,11 +1,13 @@
 package pagerduty
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -26,17 +28,8 @@ func init() {
 }
 
 func testSweepEventOrchestration(region string) error {
-	config, err := sharedConfigForRegion(region)
-	if err != nil {
-		return err
-	}
-
-	client, err := config.Client()
-	if err != nil {
-		return err
-	}
-
-	resp, _, err := client.EventOrchestrations.List()
+	ctx := context.Background()
+	resp, err := testAccProvider.client.ListOrchestrationsWithContext(ctx, pagerduty.ListOrchestrationsOptions{})
 	if err != nil {
 		return err
 	}
@@ -44,7 +37,7 @@ func testSweepEventOrchestration(region string) error {
 	for _, orchestration := range resp.Orchestrations {
 		if strings.HasPrefix(orchestration.Name, "tf-orchestration-") {
 			log.Printf("Destroying Event Orchestration %s (%s)", orchestration.Name, orchestration.ID)
-			if _, err := client.EventOrchestrations.Delete(orchestration.ID); err != nil {
+			if err := testAccProvider.client.DeleteOrchestrationWithContext(ctx, orchestration.ID); err != nil {
 				return err
 			}
 		}
@@ -62,9 +55,9 @@ func TestAccPagerDutyEventOrchestration_Basic(t *testing.T) {
 	team2 := fmt.Sprintf("tf-team-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyEventOrchestrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyEventOrchestrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyEventOrchestrationConfigNameOnly(name),
@@ -127,12 +120,13 @@ func TestAccPagerDutyEventOrchestration_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyEventOrchestrationDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
+	ctx := context.Background()
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_event_orchestration" {
 			continue
 		}
-		if _, _, err := client.EventOrchestrations.Get(r.Primary.ID); err == nil {
+		opts := &pagerduty.GetOrchestrationOptions{}
+		if _, err := testAccProvider.client.GetOrchestrationWithContext(ctx, r.Primary.ID, opts); err == nil {
 			return fmt.Errorf("Event Orchestration still exists")
 		}
 	}
@@ -141,6 +135,8 @@ func testAccCheckPagerDutyEventOrchestrationDestroy(s *terraform.State) error {
 
 func testAccCheckPagerDutyEventOrchestrationExists(rn string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
+		ctx := context.Background()
+
 		orch, ok := s.RootModule().Resources[rn]
 		if !ok {
 			return fmt.Errorf("Not found: %s", rn)
@@ -149,8 +145,8 @@ func testAccCheckPagerDutyEventOrchestrationExists(rn string) resource.TestCheck
 			return fmt.Errorf("No Event Orchestration ID is set")
 		}
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-		found, _, err := client.EventOrchestrations.Get(orch.Primary.ID)
+		opts := &pagerduty.GetOrchestrationOptions{}
+		found, err := testAccProvider.client.GetOrchestrationWithContext(ctx, orch.Primary.ID, opts)
 		if err != nil {
 			return err
 		}

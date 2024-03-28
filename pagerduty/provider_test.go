@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,4 +357,32 @@ resource "pagerduty_team" "foo" {
   name        = "%s"
   description = "foo"
 }`, team)
+}
+
+func testSweepEventOrchestration(region string) error {
+	config, err := sharedConfigForRegion(region)
+	if err != nil {
+		return err
+	}
+
+	client, err := config.Client()
+	if err != nil {
+		return err
+	}
+
+	resp, _, err := client.EventOrchestrations.List()
+	if err != nil {
+		return err
+	}
+
+	for _, orchestration := range resp.Orchestrations {
+		if strings.HasPrefix(orchestration.Name, "tf-orchestration-") {
+			log.Printf("Destroying Event Orchestration %s (%s)", orchestration.Name, orchestration.ID)
+			if _, err := client.EventOrchestrations.Delete(orchestration.ID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

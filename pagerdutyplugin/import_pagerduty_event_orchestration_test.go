@@ -15,9 +15,9 @@ func TestAccPagerDutyEventOrchestration_import(t *testing.T) {
 	team2 := fmt.Sprintf("tf-team2-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyEventOrchestrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyEventOrchestrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyEventOrchestrationConfig(name, description, team1, team2),
@@ -35,9 +35,9 @@ func TestAccPagerDutyEventOrchestrationNameOnly_import(t *testing.T) {
 	name := fmt.Sprintf("tf-name-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyEventOrchestrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyEventOrchestrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyEventOrchestrationConfigNameOnly(name),
