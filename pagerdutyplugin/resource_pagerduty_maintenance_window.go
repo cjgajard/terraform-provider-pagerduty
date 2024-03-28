@@ -183,27 +183,29 @@ func (r *resourceMaintenanceWindow) ImportState(ctx context.Context, req resourc
 }
 
 func (r *resourceMaintenanceWindow) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if req.State.Raw.IsNull() {
-		// Skip when resource is in creation process
-		return
-	}
+	/*
+		if req.State.Raw.IsNull() {
+			// Skip when resource is in creation process
+			return
+		}
 
-	if req.Plan.Raw.IsNull() {
-		// Skip when resource is in deletion process
-		return
-	}
+		if req.Plan.Raw.IsNull() {
+			// Skip when resource is in deletion process
+			return
+		}
 
-	var plan *resourceMaintenanceWindowModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+		var plan *resourceMaintenanceWindowModel
+		resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 
-	if checkTimeIsBeforeNow(plan.StartTime.ValueString()) || checkTimeIsBeforeNow(plan.EndTime.ValueString()) {
-		// Cannot modify maintenance windows that have already started.
-		resp.Plan.Raw = req.State.Raw
-		return
-	}
+		if checkTimeIsBeforeNow(plan.StartTime.ValueString()) || checkTimeIsBeforeNow(plan.EndTime.ValueString()) {
+			// Cannot modify maintenance windows that have already started.
+			resp.Plan.Raw = req.State.Raw
+			return
+		}
+	*/
 }
 
 type resourceMaintenanceWindowModel struct {
