@@ -29,25 +29,6 @@ func (r *resourceEventOrchestration) Metadata(_ context.Context, _ resource.Meta
 	resp.TypeName = "pagerduty_event_orchestration"
 }
 
-var orchestrationIntegrationAttr = schema.ListNestedAttribute{
-	Computed: true,
-	NestedObject: schema.NestedAttributeObject{
-		Attributes: map[string]schema.Attribute{
-			"id":    schema.StringAttribute{Computed: true},
-			"label": schema.StringAttribute{Computed: true},
-			"parameters": schema.ListNestedAttribute{
-				Computed: true,
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"routing_key": schema.StringAttribute{Computed: true},
-						"type":        schema.StringAttribute{Computed: true},
-					},
-				},
-			},
-		},
-	},
-}
-
 func (r *resourceEventOrchestration) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
@@ -59,7 +40,7 @@ func (r *resourceEventOrchestration) Schema(_ context.Context, _ resource.Schema
 			"description":  schema.StringAttribute{Optional: true, Computed: true},
 			"team":         schema.StringAttribute{Optional: true, Computed: true},
 			"routes":       schema.Int64Attribute{Computed: true},
-			"integrations": orchestrationIntegrationAttr,
+			"integrations": eventOrchestrationIntegrationAttr,
 		},
 	}
 }
@@ -186,6 +167,25 @@ type resourceEventOrchestrationModel struct {
 	Integrations types.List   `tfsdk:"integrations"`
 }
 
+var eventOrchestrationIntegrationAttr = schema.ListNestedAttribute{
+	Computed: true,
+	NestedObject: schema.NestedAttributeObject{
+		Attributes: map[string]schema.Attribute{
+			"id":    schema.StringAttribute{Computed: true},
+			"label": schema.StringAttribute{Computed: true},
+			"parameters": schema.ListNestedAttribute{
+				Computed: true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"routing_key": schema.StringAttribute{Computed: true},
+						"type":        schema.StringAttribute{Computed: true},
+					},
+				},
+			},
+		},
+	},
+}
+
 func requestGetEventOrchestration(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool) (resourceEventOrchestrationModel, error) {
 	var model resourceEventOrchestrationModel
 
@@ -235,24 +235,25 @@ func flattenEventOrchestration(response *pagerduty.Orchestration) resourceEventO
 	return model
 }
 
-var resourceEventOrchestrationParameterObjectType = types.ObjectType{
+var eventOrchestrationParameterObjectType = types.ObjectType{
 	AttrTypes: map[string]attr.Type{
 		"routing_key": types.StringType,
 		"type":        types.StringType,
 	},
 }
 
+var eventOrchestrationIntegrationObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"id":         types.StringType,
+		"label":      types.StringType,
+		"parameters": types.ListType{ElemType: eventOrchestrationParameterObjectType},
+	},
+}
+
 func flattenEventOrchestrationIntegrations(list []*pagerduty.OrchestrationIntegration) types.List {
-	integrationObjectType := types.ObjectType{
-		AttrTypes: map[string]attr.Type{
-			"id":         types.StringType,
-			"label":      types.StringType,
-			"parameters": types.ListType{ElemType: resourceEventOrchestrationParameterObjectType},
-		},
-	}
 	elements := make([]attr.Value, 0, len(list))
 	for _, integration := range list {
-		obj := types.ObjectValueMust(integrationObjectType.AttrTypes, map[string]attr.Value{
+		obj := types.ObjectValueMust(eventOrchestrationIntegrationObjectType.AttrTypes, map[string]attr.Value{
 			"id":         types.StringValue(integration.ID),
 			"label":      types.StringNull(),
 			"parameters": flattenEventOrchestrationIntegrationParameters(integration.Parameters),
@@ -260,13 +261,13 @@ func flattenEventOrchestrationIntegrations(list []*pagerduty.OrchestrationIntegr
 		})
 		elements = append(elements, obj)
 	}
-	return types.ListValueMust(integrationObjectType, elements)
+	return types.ListValueMust(eventOrchestrationIntegrationObjectType, elements)
 }
 
 func flattenEventOrchestrationIntegrationParameters(p *pagerduty.OrchestrationIntegrationParameters) types.List {
-	obj := types.ObjectValueMust(resourceEventOrchestrationParameterObjectType.AttrTypes, map[string]attr.Value{
+	obj := types.ObjectValueMust(eventOrchestrationParameterObjectType.AttrTypes, map[string]attr.Value{
 		"routing_key": types.StringValue(p.RoutingKey),
 		"type":        types.StringValue(p.Type),
 	})
-	return types.ListValueMust(resourceEventOrchestrationParameterObjectType, []attr.Value{obj})
+	return types.ListValueMust(eventOrchestrationParameterObjectType, []attr.Value{obj})
 }

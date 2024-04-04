@@ -25,11 +25,7 @@ func (*dataSourceEventOrchestration) Metadata(ctx context.Context, req datasourc
 
 func (*dataSourceEventOrchestration) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Attributes: map[string]schema.Attribute{
-			"id":          schema.StringAttribute{Computed: true},
-			"name":        schema.StringAttribute{Required: true},
-			"integration": orchestrationIntegrationAttr,
-		},
+		Attributes: eventOrchestrationAttributes,
 	}
 }
 
@@ -94,4 +90,10 @@ type dataSourceEventOrchestrationModel struct {
 	ID          types.String `tfsdk:"id"`
 	Name        types.String `tfsdk:"name"`
 	Integration types.List   `tfsdk:"integration"`
+}
+
+var eventOrchestrationAttributes = map[string]schema.Attribute{
+	"id":          schema.StringAttribute{Computed: true},
+	"name":        schema.StringAttribute{Required: true},
+	"integration": eventOrchestrationIntegrationAttr,
 }

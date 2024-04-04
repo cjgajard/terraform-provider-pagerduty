@@ -96,7 +96,6 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_priority":                        dataSourcePagerDutyPriority(),
 			"pagerduty_ruleset":                         dataSourcePagerDutyRuleset(),
 			"pagerduty_tag":                             dataSourcePagerDutyTag(),
-			"pagerduty_event_orchestrations":            dataSourcePagerDutyEventOrchestrations(),
 			"pagerduty_event_orchestration_integration": dataSourcePagerDutyEventOrchestrationIntegration(),
 			"pagerduty_automation_actions_runner":       dataSourcePagerDutyAutomationActionsRunner(),
 			"pagerduty_automation_actions_action":       dataSourcePagerDutyAutomationActionsAction(),
