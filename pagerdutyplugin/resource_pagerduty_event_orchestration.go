@@ -29,28 +29,26 @@ func (r *resourceEventOrchestration) Metadata(_ context.Context, _ resource.Meta
 	resp.TypeName = "pagerduty_event_orchestration"
 }
 
+var orchestrationIntegrationAttr = schema.ListNestedAttribute{
+	Computed: true,
+	NestedObject: schema.NestedAttributeObject{
+		Attributes: map[string]schema.Attribute{
+			"id":    schema.StringAttribute{Computed: true},
+			"label": schema.StringAttribute{Computed: true},
+			"parameters": schema.ListNestedAttribute{
+				Computed: true,
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"routing_key": schema.StringAttribute{Computed: true},
+						"type":        schema.StringAttribute{Computed: true},
+					},
+				},
+			},
+		},
+	},
+}
+
 func (r *resourceEventOrchestration) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	parametersAttr := schema.ListNestedAttribute{
-		Computed: true,
-		NestedObject: schema.NestedAttributeObject{
-			Attributes: map[string]schema.Attribute{
-				"routing_key": schema.StringAttribute{Computed: true},
-				"type":        schema.StringAttribute{Computed: true},
-			},
-		},
-	}
-
-	integrationAttr := schema.ListNestedAttribute{
-		Computed: true,
-		NestedObject: schema.NestedAttributeObject{
-			Attributes: map[string]schema.Attribute{
-				"id":         schema.StringAttribute{Computed: true},
-				"label":      schema.StringAttribute{Computed: true},
-				"parameters": parametersAttr,
-			},
-		},
-	}
-
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -61,7 +59,7 @@ func (r *resourceEventOrchestration) Schema(_ context.Context, _ resource.Schema
 			"description":  schema.StringAttribute{Optional: true, Computed: true},
 			"team":         schema.StringAttribute{Optional: true, Computed: true},
 			"routes":       schema.Int64Attribute{Computed: true},
-			"integrations": integrationAttr,
+			"integrations": orchestrationIntegrationAttr,
 		},
 	}
 }
