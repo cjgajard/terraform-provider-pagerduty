@@ -4,17 +4,193 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
-	"strings"
 	"time"
 
-	"github.com/hashicorp/go-cty/cty"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/PagerDuty/go-pagerduty"
+	"github.com/PagerDuty/terraform-provider-pagerduty/util"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
+type resourceEventOrchestrationIntegration struct{ client *pagerduty.Client }
+
+var (
+	_ resource.ResourceWithConfigure   = (*resourceEventOrchestrationIntegration)(nil)
+	_ resource.ResourceWithImportState = (*resourceEventOrchestrationIntegration)(nil)
+)
+
+func (r *resourceEventOrchestrationIntegration) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pagerduty_event_orchestration_integration"
+}
+
+func (r *resourceEventOrchestrationIntegration) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{Computed: true},
+		},
+	}
+}
+
+func (r *resourceEventOrchestrationIntegration) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var model resourceEventOrchestrationIntegrationModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	plan := buildPagerdutyEventOrchestrationIntegration(&model)
+	log.Printf("[INFO] Creating PagerDuty event orchestration integration %s", plan.Name)
+
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		response, err := r.client.CreateEventOrchestrationIntegrationWithContext(ctx, plan)
+		if err != nil {
+			if util.IsBadRequestError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		plan.ID = response.ID
+		return nil
+	})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error creating PagerDuty event orchestration integration %s", plan.Name),
+			err.Error(),
+		)
+		return
+	}
+
+	model, err = requestGetEventOrchestrationIntegration(ctx, r.client, plan.ID, &resp.Diagnostics)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error reading PagerDuty event orchestration integration %s", plan.ID),
+			err.Error(),
+		)
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func (r *resourceEventOrchestrationIntegration) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var id types.String
+
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Reading PagerDuty event orchestration integration %s", id)
+
+	state, err := requestGetEventOrchestrationIntegration(ctx, r.client, id.ValueString(), &resp.Diagnostics)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error reading PagerDuty event orchestration integration %s", id),
+			err.Error(),
+		)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+}
+
+func (r *resourceEventOrchestrationIntegration) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var model resourceEventOrchestrationIntegrationModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	plan := buildPagerdutyEventOrchestrationIntegration(&model)
+	if plan.ID == "" {
+		var id string
+		req.State.GetAttribute(ctx, path.Root("id"), &id)
+		plan.ID = id
+	}
+	log.Printf("[INFO] Updating PagerDuty event orchestration integration %s", plan.ID)
+
+	eventOrchestrationIntegration, err := r.client.UpdateEventOrchestrationIntegrationWithContext(ctx, plan.ID, plan)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error updating PagerDuty event orchestration integration %s", plan.ID),
+			err.Error(),
+		)
+		return
+	}
+	model = flattenEventOrchestrationIntegration(eventOrchestrationIntegration)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func (r *resourceEventOrchestrationIntegration) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var id types.String
+
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Deleting PagerDuty event orchestration integration %s", id)
+
+	err := r.client.DeleteEventOrchestrationIntegrationWithContext(ctx, id.ValueString())
+	if err != nil && !util.IsNotFoundError(err) {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error deleting PagerDuty event orchestration integration %s", id),
+			err.Error(),
+		)
+		return
+	}
+	resp.State.RemoveResource(ctx)
+}
+
+func (r *resourceEventOrchestrationIntegration) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	resp.Diagnostics.Append(ConfigurePagerdutyClient(&r.client, req.ProviderData)...)
+}
+
+func (r *resourceEventOrchestrationIntegration) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+type resourceEventOrchestrationIntegrationModel struct {
+	ID types.String `tfsdk:"id"`
+}
+
+func requestGetEventOrchestrationIntegration(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceEventOrchestrationIntegrationModel, error) {
+	var model resourceEventOrchestrationIntegrationModel
+
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		eventOrchestrationIntegration, err := client.GetEventOrchestrationIntegrationWithContext(ctx, id)
+		if err != nil {
+			if util.IsBadRequestError(err) {
+				return retry.NonRetryableError(err)
+			}
+			if !retryNotFound && util.IsNotFoundError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		model = flattenEventOrchestrationIntegration(eventOrchestrationIntegration)
+		return nil
+	})
+
+	return model, err
+}
+
+func buildPagerdutyEventOrchestrationIntegration(model *resourceEventOrchestrationIntegrationModel) *pagerduty.EventOrchestrationIntegration {
+	eventOrchestrationIntegration := pagerduty.EventOrchestrationIntegration{}
+	return &eventOrchestrationIntegration
+}
+
+func flattenEventOrchestrationIntegration(response *pagerduty.EventOrchestrationIntegration) resourceEventOrchestrationIntegrationModel {
+	model := resourceEventOrchestrationIntegrationModel{
+		ID: types.StringValue(response.ID),
+	}
+	return model
+}
+
+/*
 func resourcePagerDutyEventOrchestrationIntegration() *schema.Resource {
 	return &schema.Resource{
 		CreateContext: resourcePagerDutyEventOrchestrationIntegrationCreate,
@@ -325,3 +501,4 @@ func setEventOrchestrationIntegrationProps(d *schema.ResourceData, i *pagerduty.
 
 	return nil
 }
+*/

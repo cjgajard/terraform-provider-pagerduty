@@ -27,9 +27,9 @@ func TestAccPagerDutyEventOrchestrationIntegration_Basic(t *testing.T) {
 	orn2 := "orch_2"
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyEventOrchestrationIntegrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyEventOrchestrationIntegrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyEventOrchestrationIntegrationConfig(onp, lbl1, orn1),
@@ -74,12 +74,11 @@ func TestAccPagerDutyEventOrchestrationIntegration_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyEventOrchestrationIntegrationDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_event_orchestration_integration" {
 			continue
 		}
-		if _, _, err := client.EventOrchestrationIntegrations.GetContext(context.Background(), r.Primary.Attributes["event_orchestration"], r.Primary.ID); err == nil {
+		if _, _, err := testAccProvider.client.GetOrchestrationIntegrationWithContext(context.Background(), r.Primary.Attributes["event_orchestration"], r.Primary.ID); err == nil {
 			return fmt.Errorf("Event Orchestration Integration still exists")
 		}
 	}
