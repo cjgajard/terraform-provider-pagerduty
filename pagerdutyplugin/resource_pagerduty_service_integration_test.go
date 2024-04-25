@@ -1,15 +1,16 @@
 package pagerduty
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
 func TestAccPagerDutyServiceIntegration_Basic(t *testing.T) {
@@ -21,9 +22,9 @@ func TestAccPagerDutyServiceIntegration_Basic(t *testing.T) {
 	serviceIntegrationUpdated := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyServiceIntegrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyServiceIntegrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyServiceIntegrationConfig(username, email, escalationPolicy, service, serviceIntegration),
@@ -64,9 +65,9 @@ func TestAccPagerDutyServiceIntegrationGeneric_Basic(t *testing.T) {
 	serviceIntegrationUpdated := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyServiceIntegrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyServiceIntegrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyServiceIntegrationGenericConfig(username, email, escalationPolicy, service, serviceIntegration),
@@ -114,6 +115,7 @@ func TestAccPagerDutyServiceIntegrationGeneric_Basic(t *testing.T) {
 		},
 	})
 }
+
 func TestAccPagerDutyServiceIntegrationEmail_Filters(t *testing.T) {
 	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
 	email := fmt.Sprintf("%s@foo.test", username)
@@ -123,9 +125,9 @@ func TestAccPagerDutyServiceIntegrationEmail_Filters(t *testing.T) {
 	serviceIntegrationUpdated := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyServiceIntegrationDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyServiceIntegrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyServiceIntegrationEmailFiltersConfig(username, email, escalationPolicy, service, serviceIntegration, testAccGetPagerDutyAccountDomain(t)),
@@ -383,8 +385,8 @@ func TestAccPagerDutyServiceIntegration_GenericEmailNoFilters(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckServiceIntegrationGenericEmailNoFilters(t)
 		},
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutyServiceIntegrationDestroy,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyServiceIntegrationDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyServiceIntegrationGenericEmailNoFilters(username, email, escalationPolicy, service, serviceIntegration),
@@ -407,15 +409,15 @@ func TestAccPagerDutyServiceIntegration_GenericEmailNoFilters(t *testing.T) {
 }
 
 func testAccCheckPagerDutyServiceIntegrationDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_service_integration" {
 			continue
 		}
 
 		service, _ := s.RootModule().Resources["pagerduty_service.foo"]
+		ctx := context.Background()
 
-		if _, _, err := client.Services.GetIntegration(service.Primary.ID, r.Primary.ID, &pagerduty.GetIntegrationOptions{}); err == nil {
+		if _, err := testAccProvider.client.GetIntegrationWithContext(ctx, service.Primary.ID, r.Primary.ID, pagerduty.GetIntegrationOptions{}); err == nil {
 			return fmt.Errorf("Service Integration still exists")
 		}
 
@@ -435,10 +437,9 @@ func testAccCheckPagerDutyServiceIntegrationExists(n string) resource.TestCheckF
 		}
 
 		service, _ := s.RootModule().Resources["pagerduty_service.foo"]
+		ctx := context.Background()
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-
-		found, _, err := client.Services.GetIntegration(service.Primary.ID, rs.Primary.ID, &pagerduty.GetIntegrationOptions{})
+		found, err := testAccProvider.client.GetIntegrationWithContext(ctx, service.Primary.ID, rs.Primary.ID, pagerduty.GetIntegrationOptions{})
 		if err != nil {
 			return fmt.Errorf("Service integration not found: %v", rs.Primary.ID)
 		}
