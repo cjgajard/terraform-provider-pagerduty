@@ -2,10 +2,12 @@ package pagerduty
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/PagerDuty/go-pagerduty"
 	pd "github.com/PagerDuty/terraform-provider-pagerduty/pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -97,4 +99,32 @@ func testAccPreCheckPagerDutyAbility(t *testing.T, ability string) {
 	if err := testAccProvider.client.TestAbilityWithContext(ctx, ability); err != nil {
 		t.Skipf("Missing ability: %s. Skipping test", ability)
 	}
+}
+
+// Implementation cribbed from PDPYRAS subdomain function
+// List one user and return the domain from the HTMLURL
+func testAccGetPagerDutyAccountDomain(t *testing.T) string {
+	if v := os.Getenv("PAGERDUTY_TOKEN"); v == "" {
+		t.SkipNow()
+	}
+	if v := os.Getenv("PAGERDUTY_USER_TOKEN"); v == "" {
+		t.SkipNow()
+	}
+
+	o := pagerduty.ListUsersOptions{
+		Limit: 1,
+	}
+
+	var accountDomain string
+
+	ctx := context.Background()
+	resp, _ := testAccProvider.client.ListUsersWithContext(ctx, o)
+	for _, user := range resp.Users {
+		u, err := url.Parse(user.HTMLURL)
+		if err != nil {
+			t.Fatal("Unable to determine account domain")
+		}
+		accountDomain = u.Hostname()
+	}
+	return accountDomain
 }
