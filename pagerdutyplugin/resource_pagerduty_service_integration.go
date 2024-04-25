@@ -8,12 +8,14 @@ import (
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
+	"github.com/PagerDuty/terraform-provider-pagerduty/util/enumtypes"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -97,20 +99,85 @@ func (r *resourceServiceIntegration) Schema(_ context.Context, _ resource.Schema
 
 			"email_filter": schema.ListAttribute{
 				Optional:    true,
+				Computed:    true,
 				ElementType: emailFilterObjectType,
-				// ForceNew
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.RequiresReplaceIfConfigured(),
+					listplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
 }
 
 var emailParserObjectType = types.ObjectType{
-	AttrTypes: map[string]attr.Type{},
+	AttrTypes: map[string]attr.Type{
+		"action":          enumtypes.StringType{OneOf: []string{"resolve", "trigger"} /* TODO required */},
+		"id":              types.StringType,
+		"match_predicate": types.ListType{ElemType: emailParserMatchPredicateObjectType},
+		"value_extractor": types.ListType{ElemType: emailParserValueExtractorObjectType},
+	},
 }
 
-var emailFilterObjectType = types.ObjectType{
-	AttrTypes: map[string]attr.Type{},
+var emailParserActionType = enumtypes.StringType{OneOf: []string{"resolve", "trigger"} /* TODO required */}
+
+var emailParserMatchPredicateObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"type":      emailParserMatchPredicateTypeType,
+		"predicate": types.ListType{ElemType: emailParserMatchPredicatePredicateObjectType},
+	},
 }
+
+var emailParserMatchPredicateTypeType = enumtypes.StringType{OneOf: []string{"all", "any"} /* TODO required */}
+
+var emailParserMatchPredicatePredicateObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"matcher":   types.StringType,
+		"part":      emailParserMatchPredicatePredicatePartType,
+		"predicate": types.ListType{ElemType: emailParserMatchPredicatePredicatePredicateObjectType},
+		"type":      emailParserMatchPredicatePredicateTypeType, // required
+	},
+}
+
+var emailParserMatchPredicatePredicatePartType = enumtypes.StringType{OneOf: []string{"body", "from_address", "subject"}}
+var emailParserMatchPredicatePredicateTypeType = enumtypes.StringType{OneOf: []string{"contains", "exactly", "not", "regex"}}
+
+var emailParserMatchPredicatePredicatePredicateObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"matcher": types.StringType,                                    // required
+		"part":    emailParserMatchPredicatePredicatePartType,          // required
+		"type":    emailParserMatchPredicatePredicatePredicateTypeType, // required
+	},
+}
+var emailParserMatchPredicatePredicatePredicateTypeType = enumtypes.StringType{OneOf: []string{"contains", "exactly", "regex"}}
+
+var emailParserValueExtractorObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"ends_before":  types.StringType,
+		"part":         emailParserValueExtractorPartType, // required
+		"type":         emailParserValueExtractorTypeType, // required
+		"regex":        types.StringType,
+		"starts_after": types.StringType,
+		"value_name":   types.StringType, // required
+	},
+}
+
+var emailParserValueExtractorPartType = enumtypes.StringType{OneOf: []string{"body", "from_address", "subject"}}
+var emailParserValueExtractorTypeType = enumtypes.StringType{OneOf: []string{"between", "entire", "regex"}}
+
+var emailFilterObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{
+		"id":               types.StringType,
+		"subject_mode":     emailFilterModeType,
+		"subject_regex":    types.StringType,
+		"body_mode":        emailFilterModeType,
+		"body_regex":       types.StringType,
+		"from_email_mode":  emailFilterModeType,
+		"from_email_regex": types.StringType,
+	},
+}
+
+var emailFilterModeType = enumtypes.StringType{OneOf: []string{"always", "match", "no-match"}}
 
 func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var model resourceServiceIntegrationModel
@@ -123,7 +190,7 @@ func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.Cr
 	log.Printf("[INFO] Creating PagerDuty service integration %s", plan.Name)
 
 	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
-		response, err := r.client.CreateIntegrationWithContext(ctx, plan)
+		response, err := r.client.CreateIntegrationWithContext(ctx, plan.Service.ID, plan)
 		if err != nil {
 			if util.IsBadRequestError(err) {
 				return retry.NonRetryableError(err)
@@ -141,7 +208,7 @@ func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.Cr
 		return
 	}
 
-	model, err = requestGetServiceIntegration(ctx, r.client, plan.ID, &resp.Diagnostics)
+	model, err = requestGetServiceIntegration(ctx, r.client, plan.Service.ID, plan.ID, false, &resp.Diagnostics)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error reading PagerDuty service integration %s", plan.ID),
@@ -155,14 +222,20 @@ func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.Cr
 
 func (r *resourceServiceIntegration) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var id types.String
+	var serviceID types.String
 
 	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("service"), &serviceID)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	log.Printf("[INFO] Reading PagerDuty service integration %s", id)
 
-	state, err := requestGetServiceIntegration(ctx, r.client, id.ValueString(), &resp.Diagnostics)
+	retryNotFound := true
+	state, err := requestGetServiceIntegration(ctx, r.client, serviceID.ValueString(), id.ValueString(), retryNotFound, &resp.Diagnostics)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error reading PagerDuty service integration %s", id),
@@ -204,14 +277,19 @@ func (r *resourceServiceIntegration) Update(ctx context.Context, req resource.Up
 
 func (r *resourceServiceIntegration) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var id types.String
+	var serviceID types.String
 
 	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	log.Printf("[INFO] Deleting PagerDuty service integration %s", id)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("service"), &serviceID)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Deleting PagerDuty service integration %s for %s", id, serviceID)
 
-	err := r.client.DeleteIntegrationWithContext(ctx, id.ValueString())
+	err := r.client.DeleteIntegrationWithContext(ctx, serviceID.ValueString(), id.ValueString())
 	if err != nil && !util.IsNotFoundError(err) {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error deleting PagerDuty service integration %s", id),
@@ -234,11 +312,12 @@ type resourceServiceIntegrationModel struct {
 	ID types.String `tfsdk:"id"`
 }
 
-func requestGetServiceIntegration(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceServiceIntegrationModel, error) {
+func requestGetServiceIntegration(ctx context.Context, client *pagerduty.Client, serviceID, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceServiceIntegrationModel, error) {
 	var model resourceServiceIntegrationModel
+	opts := pagerduty.GetIntegrationOptions{}
 
 	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
-		serviceIntegration, err := client.GetIntegrationWithContext(ctx, id)
+		serviceIntegration, err := client.GetIntegrationWithContext(ctx, serviceID, id, opts)
 		if err != nil {
 			if util.IsBadRequestError(err) {
 				return retry.NonRetryableError(err)
@@ -255,9 +334,9 @@ func requestGetServiceIntegration(ctx context.Context, client *pagerduty.Client,
 	return model, err
 }
 
-func buildPagerdutyServiceIntegration(model *resourceServiceIntegrationModel) *pagerduty.Integration {
+func buildPagerdutyServiceIntegration(model *resourceServiceIntegrationModel) pagerduty.Integration {
 	serviceIntegration := pagerduty.Integration{}
-	return &serviceIntegration
+	return serviceIntegration
 }
 
 func flattenServiceIntegration(response *pagerduty.Integration) resourceServiceIntegrationModel {
@@ -305,199 +384,6 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 						}
 					}
 					return diag.Diagnostics{}
-				},
-			},
-			"email_parser": {
-				Type:     schema.TypeList,
-				Optional: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"action": {
-							Type:     schema.TypeString,
-							Required: true,
-							ValidateDiagFunc: validateValueDiagFunc([]string{
-								"resolve",
-								"trigger",
-							}),
-						},
-						"id": {
-							Type:     schema.TypeInt,
-							Computed: true,
-						},
-						"match_predicate": {
-							Type:     schema.TypeList,
-							Required: true,
-							MaxItems: 1,
-							MinItems: 1,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"predicate": {
-										Type:     schema.TypeList,
-										Optional: true,
-										Elem: &schema.Resource{
-											Schema: map[string]*schema.Schema{
-												"matcher": {
-													Type:     schema.TypeString,
-													Optional: true,
-												},
-												"part": {
-													Type:     schema.TypeString,
-													Optional: true,
-													ValidateDiagFunc: validateValueDiagFunc([]string{
-														"body",
-														"from_addresses",
-														"subject",
-													}),
-												},
-												"predicate": {
-													Type:     schema.TypeList,
-													Optional: true,
-													Elem: &schema.Resource{
-														Schema: map[string]*schema.Schema{
-															"matcher": {
-																Type:     schema.TypeString,
-																Required: true,
-															},
-															"part": {
-																Type:     schema.TypeString,
-																Required: true,
-																ValidateDiagFunc: validateValueDiagFunc([]string{
-																	"body",
-																	"from_addresses",
-																	"subject",
-																}),
-															},
-															"type": {
-																Type:     schema.TypeString,
-																Required: true,
-																ValidateDiagFunc: validateValueDiagFunc([]string{
-																	"contains",
-																	"exactly",
-																	"regex",
-																}),
-															},
-														},
-													},
-												},
-												"type": {
-													Type:     schema.TypeString,
-													Required: true,
-													ValidateDiagFunc: validateValueDiagFunc([]string{
-														"contains",
-														"exactly",
-														"not",
-														"regex",
-													}),
-												},
-											},
-										},
-									},
-									"type": {
-										Type:     schema.TypeString,
-										Required: true,
-										ValidateDiagFunc: validateValueDiagFunc([]string{
-											"all",
-											"any",
-										}),
-									},
-								},
-							},
-						},
-						"value_extractor": {
-							Type:     schema.TypeList,
-							Optional: true,
-							Elem: &schema.Resource{
-								Schema: map[string]*schema.Schema{
-									"ends_before": {
-										Type:     schema.TypeString,
-										Optional: true,
-									},
-									"part": {
-										Type:     schema.TypeString,
-										Required: true,
-										ValidateDiagFunc: validateValueDiagFunc([]string{
-											"body",
-											"subject",
-										}),
-									},
-									"regex": {
-										Type:     schema.TypeString,
-										Optional: true,
-									},
-									"starts_after": {
-										Type:     schema.TypeString,
-										Optional: true,
-									},
-									"type": {
-										Type:     schema.TypeString,
-										Required: true,
-										ValidateDiagFunc: validateValueDiagFunc([]string{
-											"between",
-											"entire",
-											"regex",
-										}),
-									},
-									"value_name": {
-										Type:     schema.TypeString,
-										Required: true,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			"email_filter": {
-				Type:     schema.TypeList,
-				Optional: true,
-				Computed: true,
-				ForceNew: true,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
-						"id": {
-							Type:     schema.TypeString,
-							Computed: true,
-						},
-						"subject_mode": {
-							Type:     schema.TypeString,
-							Optional: true,
-							ValidateDiagFunc: validateValueDiagFunc([]string{
-								"always",
-								"match",
-								"no-match",
-							}),
-						},
-						"subject_regex": {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-						"body_mode": {
-							Type:     schema.TypeString,
-							Optional: true,
-							ValidateDiagFunc: validateValueDiagFunc([]string{
-								"always",
-								"match",
-								"no-match",
-							}),
-						},
-						"body_regex": {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-						"from_email_mode": {
-							Type:     schema.TypeString,
-							Optional: true,
-							ValidateDiagFunc: validateValueDiagFunc([]string{
-								"always",
-								"match",
-								"no-match",
-							}),
-						},
-						"from_email_regex": {
-							Type:     schema.TypeString,
-							Optional: true,
-						},
-					},
 				},
 			},
 		},
