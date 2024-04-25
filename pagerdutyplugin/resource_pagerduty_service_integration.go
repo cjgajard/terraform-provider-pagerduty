@@ -2,24 +2,272 @@ package pagerduty
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
-	"net/http"
-	"strings"
 	"time"
 
-	"github.com/hashicorp/go-cty/cty"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
+	"github.com/PagerDuty/go-pagerduty"
+	"github.com/PagerDuty/terraform-provider-pagerduty/util"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
-const (
-	errEmailIntegrationMustHaveEmail = "integration_email attribute must be set for an integration type generic_email_inbound_integration"
+type resourceServiceIntegration struct{ client *pagerduty.Client }
+
+var (
+	_ resource.ResourceWithConfigure   = (*resourceServiceIntegration)(nil)
+	_ resource.ResourceWithImportState = (*resourceServiceIntegration)(nil)
 )
 
+func (r *resourceServiceIntegration) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pagerduty_service_integration"
+}
+
+func (r *resourceServiceIntegration) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Attributes: map[string]schema.Attribute{
+			"id":   schema.StringAttribute{Computed: true},
+			"name": schema.StringAttribute{Optional: true},
+			"service": schema.StringAttribute{
+				Required:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIfConfigured()},
+			},
+
+			"type": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplaceIfConfigured(),
+					stringplanmodifier.UseStateForUnknown(),
+				},
+				Validators: []validator.String{
+					stringvalidator.OneOf(
+						"aws_cloudwatch_inbound_integration",
+						"cloudkick_inbound_integration",
+						"event_transformer_api_inbound_integration",
+						"events_api_v2_inbound_integration",
+						"generic_email_inbound_integration",
+						"generic_events_api_inbound_integration",
+						"keynote_inbound_integration",
+						"nagios_inbound_integration",
+						"pingdom_inbound_integration",
+						"sql_monitor_inbound_integration",
+					),
+				},
+			},
+
+			"vendor": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplaceIfConfigured(),
+					stringplanmodifier.UseStateForUnknown(),
+				},
+				Validators: []validator.String{
+					stringvalidator.ConflictsWith(path.MatchRoot("type")),
+				},
+			},
+
+			"integration_key": schema.StringAttribute{
+				Optional:   true,
+				Computed:   true,
+				Validators: []validator.String{
+					// TODO
+				},
+			},
+
+			"integration_email":       schema.StringAttribute{Optional: true, Computed: true},
+			"email_incident_creation": schema.StringAttribute{Optional: true, Computed: true},
+			"email_filter_mode":       schema.StringAttribute{Optional: true, Computed: true},
+			"email_parsing_fallback":  schema.StringAttribute{Optional: true, Computed: true},
+
+			"email_parser": schema.ListAttribute{
+				Optional:    true,
+				ElementType: emailParserObjectType,
+			},
+
+			"email_filter": schema.ListAttribute{
+				Optional:    true,
+				ElementType: emailFilterObjectType,
+				// ForceNew
+			},
+		},
+	}
+}
+
+var emailParserObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{},
+}
+
+var emailFilterObjectType = types.ObjectType{
+	AttrTypes: map[string]attr.Type{},
+}
+
+func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var model resourceServiceIntegrationModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	plan := buildPagerdutyServiceIntegration(&model)
+	log.Printf("[INFO] Creating PagerDuty service integration %s", plan.Name)
+
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		response, err := r.client.CreateIntegrationWithContext(ctx, plan)
+		if err != nil {
+			if util.IsBadRequestError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		plan.ID = response.ID
+		return nil
+	})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error creating PagerDuty service integration %s", plan.Name),
+			err.Error(),
+		)
+		return
+	}
+
+	model, err = requestGetServiceIntegration(ctx, r.client, plan.ID, &resp.Diagnostics)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error reading PagerDuty service integration %s", plan.ID),
+			err.Error(),
+		)
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func (r *resourceServiceIntegration) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var id types.String
+
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Reading PagerDuty service integration %s", id)
+
+	state, err := requestGetServiceIntegration(ctx, r.client, id.ValueString(), &resp.Diagnostics)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error reading PagerDuty service integration %s", id),
+			err.Error(),
+		)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+}
+
+func (r *resourceServiceIntegration) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var model resourceServiceIntegrationModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	plan := buildPagerdutyServiceIntegration(&model)
+	if plan.ID == "" {
+		var id string
+		req.State.GetAttribute(ctx, path.Root("id"), &id)
+		plan.ID = id
+	}
+	log.Printf("[INFO] Updating PagerDuty service integration %s", plan.ID)
+
+	serviceIntegration, err := r.client.UpdateIntegrationWithContext(ctx, plan.ID, plan)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error updating PagerDuty service integration %s", plan.ID),
+			err.Error(),
+		)
+		return
+	}
+	model = flattenServiceIntegration(serviceIntegration)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func (r *resourceServiceIntegration) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var id types.String
+
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Deleting PagerDuty service integration %s", id)
+
+	err := r.client.DeleteIntegrationWithContext(ctx, id.ValueString())
+	if err != nil && !util.IsNotFoundError(err) {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error deleting PagerDuty service integration %s", id),
+			err.Error(),
+		)
+		return
+	}
+	resp.State.RemoveResource(ctx)
+}
+
+func (r *resourceServiceIntegration) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	resp.Diagnostics.Append(ConfigurePagerdutyClient(&r.client, req.ProviderData)...)
+}
+
+func (r *resourceServiceIntegration) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+type resourceServiceIntegrationModel struct {
+	ID types.String `tfsdk:"id"`
+}
+
+func requestGetServiceIntegration(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceServiceIntegrationModel, error) {
+	var model resourceServiceIntegrationModel
+
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		serviceIntegration, err := client.GetIntegrationWithContext(ctx, id)
+		if err != nil {
+			if util.IsBadRequestError(err) {
+				return retry.NonRetryableError(err)
+			}
+			if !retryNotFound && util.IsNotFoundError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		model = flattenServiceIntegration(serviceIntegration)
+		return nil
+	})
+
+	return model, err
+}
+
+func buildPagerdutyServiceIntegration(model *resourceServiceIntegrationModel) *pagerduty.Integration {
+	serviceIntegration := pagerduty.Integration{}
+	return &serviceIntegration
+}
+
+func flattenServiceIntegration(response *pagerduty.Integration) resourceServiceIntegrationModel {
+	model := resourceServiceIntegrationModel{
+		ID: types.StringValue(response.ID),
+	}
+	return model
+}
+
+/*
 func resourcePagerDutyServiceIntegration() *schema.Resource {
 	return &schema.Resource{
 		Create:        resourcePagerDutyServiceIntegrationCreate,
@@ -31,41 +279,6 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 			State: resourcePagerDutyServiceIntegrationImport,
 		},
 		Schema: map[string]*schema.Schema{
-			"name": {
-				Type:     schema.TypeString,
-				Optional: true,
-			},
-			"service": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-			"type": {
-				Type:          schema.TypeString,
-				Optional:      true,
-				ForceNew:      true,
-				Computed:      true,
-				ConflictsWith: []string{"vendor"},
-				ValidateDiagFunc: validateValueDiagFunc([]string{
-					"aws_cloudwatch_inbound_integration",
-					"cloudkick_inbound_integration",
-					"event_transformer_api_inbound_integration",
-					"events_api_v2_inbound_integration",
-					"generic_email_inbound_integration",
-					"generic_events_api_inbound_integration",
-					"keynote_inbound_integration",
-					"nagios_inbound_integration",
-					"pingdom_inbound_integration",
-					"sql_monitor_inbound_integration",
-				}),
-			},
-			"vendor": {
-				Type:          schema.TypeString,
-				ForceNew:      true,
-				Optional:      true,
-				ConflictsWith: []string{"type"},
-				Computed:      true,
-			},
 			"integration_key": {
 				Type:     schema.TypeString,
 				Optional: true,
@@ -94,34 +307,9 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 					return diag.Diagnostics{}
 				},
 			},
-			"integration_email": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"html_url": {
-				Type:     schema.TypeString,
-				Computed: true,
-			},
-			"email_incident_creation": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"email_filter_mode": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
-			"email_parsing_fallback": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-			},
 			"email_parser": {
 				Type:     schema.TypeList,
 				Optional: true,
-				ForceNew: false,
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"action": {
@@ -139,7 +327,6 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 						"match_predicate": {
 							Type:     schema.TypeList,
 							Required: true,
-							ForceNew: false,
 							MaxItems: 1,
 							MinItems: 1,
 							Elem: &schema.Resource{
@@ -147,7 +334,6 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 									"predicate": {
 										Type:     schema.TypeList,
 										Optional: true,
-										ForceNew: false,
 										Elem: &schema.Resource{
 											Schema: map[string]*schema.Schema{
 												"matcher": {
@@ -166,7 +352,6 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 												"predicate": {
 													Type:     schema.TypeList,
 													Optional: true,
-													ForceNew: false,
 													Elem: &schema.Resource{
 														Schema: map[string]*schema.Schema{
 															"matcher": {
@@ -221,7 +406,6 @@ func resourcePagerDutyServiceIntegration() *schema.Resource {
 						"value_extractor": {
 							Type:     schema.TypeList,
 							Optional: true,
-							ForceNew: false,
 							Elem: &schema.Resource{
 								Schema: map[string]*schema.Schema{
 									"ends_before": {
@@ -843,3 +1027,4 @@ func resourcePagerDutyServiceIntegrationImport(d *schema.ResourceData, meta inte
 
 	return []*schema.ResourceData{d}, nil
 }
+*/
