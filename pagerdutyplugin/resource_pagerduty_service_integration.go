@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util/enumtypes"
+	"github.com/PagerDuty/terraform-provider-pagerduty/util/validate"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -26,8 +28,9 @@ import (
 type resourceServiceIntegration struct{ client *pagerduty.Client }
 
 var (
-	_ resource.ResourceWithConfigure   = (*resourceServiceIntegration)(nil)
-	_ resource.ResourceWithImportState = (*resourceServiceIntegration)(nil)
+	_ resource.ResourceWithConfigure        = (*resourceServiceIntegration)(nil)
+	_ resource.ResourceWithImportState      = (*resourceServiceIntegration)(nil)
+	_ resource.ResourceWithConfigValidators = (*resourceServiceIntegration)(nil)
 )
 
 func (r *resourceServiceIntegration) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -80,10 +83,14 @@ func (r *resourceServiceIntegration) Schema(_ context.Context, _ resource.Schema
 			},
 
 			"integration_key": schema.StringAttribute{
-				Optional:   true,
-				Computed:   true,
+				Optional: true,
+				Computed: true,
 				Validators: []validator.String{
-					// TODO
+					validate.DeprecatedIfPresent("Argument is deprecated. " +
+						"Assignments or updates to this attribute are not " +
+						"supported by Service Integrations API, it is a " +
+						"read-only value. Input support will be dropped in " +
+						"upcomming major release"),
 				},
 			},
 
@@ -110,16 +117,401 @@ func (r *resourceServiceIntegration) Schema(_ context.Context, _ resource.Schema
 	}
 }
 
+func (r *resourceServiceIntegration) ConfigValidators(ctx context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		validate.RequireAIfBEqual(
+			path.Root("integration_email"),
+			path.Root("type"),
+			types.StringValue("generic_email_inbound_integration"),
+		),
+	}
+}
+
+func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var model resourceServiceIntegrationModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	plan := buildPagerdutyIntegration(ctx, &model, &resp.Diagnostics)
+	log.Printf("[INFO] Creating PagerDuty service integration %s", plan.Name)
+
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		response, err := r.client.CreateIntegrationWithContext(ctx, plan.Service.ID, plan)
+		if err != nil {
+			if util.IsBadRequestError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		plan.ID = response.ID
+		return nil
+	})
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error creating PagerDuty service integration %s", plan.Name),
+			err.Error(),
+		)
+		return
+	}
+
+	model, err = requestGetServiceIntegration(ctx, r.client, plan.Service.ID, plan.ID, false)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error reading PagerDuty service integration %s", plan.ID),
+			err.Error(),
+		)
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func (r *resourceServiceIntegration) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var id types.String
+	var serviceID types.String
+
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("service"), &serviceID)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Reading PagerDuty service integration %s", id)
+
+	retryNotFound := true
+	state, err := requestGetServiceIntegration(ctx, r.client, serviceID.ValueString(), id.ValueString(), retryNotFound)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error reading PagerDuty service integration %s", id),
+			err.Error(),
+		)
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+}
+
+func (r *resourceServiceIntegration) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var model resourceServiceIntegrationModel
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	plan := buildPagerdutyIntegration(ctx, &model, &resp.Diagnostics)
+	if plan.ID == "" {
+		var id string
+		req.State.GetAttribute(ctx, path.Root("id"), &id)
+		plan.ID = id
+	}
+	log.Printf("[INFO] Updating PagerDuty service integration %s", plan.ID)
+
+	serviceIntegration, err := r.client.UpdateIntegrationWithContext(ctx, plan.Service.ID, plan)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error updating PagerDuty service integration %s", plan.ID),
+			err.Error(),
+		)
+		return
+	}
+	model = flattenServiceIntegration(serviceIntegration)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func (r *resourceServiceIntegration) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var id types.String
+	var serviceID types.String
+
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("service"), &serviceID)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	log.Printf("[INFO] Deleting PagerDuty service integration %s for %s", id, serviceID)
+
+	err := r.client.DeleteIntegrationWithContext(ctx, serviceID.ValueString(), id.ValueString())
+	if err != nil && !util.IsNotFoundError(err) {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error deleting PagerDuty service integration %s", id),
+			err.Error(),
+		)
+		return
+	}
+	resp.State.RemoveResource(ctx)
+}
+
+func (r *resourceServiceIntegration) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	resp.Diagnostics.Append(ConfigurePagerdutyClient(&r.client, req.ProviderData)...)
+}
+
+func (r *resourceServiceIntegration) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	ids := strings.Split(req.ID, ".")
+	if len(ids) != 2 {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error importing pagerduty_service_integration %v", req.ID),
+			"Expecting an importation ID formed as '<service_id>.<integration_id>'",
+		)
+	}
+
+	_, err := requestGetServiceIntegration(ctx, r.client, ids[0], ids[1], false)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			fmt.Sprintf("Error importing pagerduty_service_integration %v", req.ID),
+			err.Error(),
+		)
+	}
+
+	resp.State.SetAttribute(ctx, path.Root("id"), ids[1])
+	resp.State.SetAttribute(ctx, path.Root("service"), ids[0])
+}
+
+type resourceServiceIntegrationModel struct {
+	ID                    types.String `tfsdk:"id"`
+	Name                  types.String `tfsdk:"name"`
+	Service               types.String `tfsdk:"service"`
+	Type                  types.String `tfsdk:"type"`
+	Vendor                types.String `tfsdk:"vendor"`
+	IntegrationKey        types.String `tfsdk:"integration_key"`
+	IntegrationEmail      types.String `tfsdk:"integration_email"`
+	EmailIncidentCreation types.String `tfsdk:"email_incident_creation"`
+	EmailFilterMode       types.String `tfsdk:"email_filter_mode"`
+	EmailParsingFallback  types.String `tfsdk:"email_parsing_fallback"`
+	EmailParser           types.List   `tfsdk:"email_parser"`
+	EmailFilter           types.List   `tfsdk:"email_filter"`
+	HTMLURL               types.String `tfsdk:"html_url"`
+}
+
+func requestGetServiceIntegration(ctx context.Context, client *pagerduty.Client, serviceID, id string, retryNotFound bool) (resourceServiceIntegrationModel, error) {
+	var model resourceServiceIntegrationModel
+	opts := pagerduty.GetIntegrationOptions{}
+
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		serviceIntegration, err := client.GetIntegrationWithContext(ctx, serviceID, id, opts)
+		if err != nil {
+			if util.IsBadRequestError(err) {
+				return retry.NonRetryableError(err)
+			}
+			if !retryNotFound && util.IsNotFoundError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		model = flattenServiceIntegration(serviceIntegration)
+		return nil
+	})
+
+	return model, err
+}
+
+func buildPagerdutyIntegration(ctx context.Context, model *resourceServiceIntegrationModel, diags *diag.Diagnostics) pagerduty.Integration {
+	return pagerduty.Integration{
+		EmailFilters: buildEmailFilters(ctx, model.EmailFilter, diags),
+		// EmailParsers: buildEmailParcers(model.EmailParser),
+	}
+}
+
+// func buildEmailParcers(_ types.List, _ *diag.Diagnostics) []interface{} {
+// 	if list.IsNull() || list.IsUnknown() {
+// 		return nil
+// 	}
+// 	if err != nil {
+// 		log.Printf("[ERR] Parce PagerDuty service integration email parcers fail %s", err) }
+// 	}
+// 	return nil
+// }
+
+func buildEmailFilters(ctx context.Context, list types.List, diags *diag.Diagnostics) []pagerduty.IntegrationEmailFilterRule {
+	if list.IsNull() || list.IsUnknown() {
+		return nil
+	}
+
+	var target []struct {
+		ID             types.String `tfsdk:"id"`
+		SubjectMode    types.String `tfsdk:"subject_mode"`
+		SubjectRegex   types.String `tfsdk:"subject_regex"`
+		BodyMode       types.String `tfsdk:"body_mode"`
+		BodyRegex      types.String `tfsdk:"body_regex"`
+		FromEmailMode  types.String `tfsdk:"from_email_mode"`
+		FromEmailRegex types.String `tfsdk:"from_email_regex"`
+	}
+
+	d := list.ElementsAs(ctx, &target, false)
+	diags.Append(d...)
+	if d.HasError() {
+		return nil
+	}
+
+	emailFilters := make([]pagerduty.IntegrationEmailFilterRule, 0, len(target))
+	for _, ef := range target {
+		emailFilters = append(emailFilters, pagerduty.IntegrationEmailFilterRule{
+			// ID:             ef.ID.ValueString(),
+			SubjectMode:    buildPagerDutyEmailFilterRuleMode(ef.SubjectMode.ValueString()),
+			SubjectRegex:   ef.SubjectRegex.ValueStringPointer(),
+			BodyMode:       buildPagerDutyEmailFilterRuleMode(ef.BodyMode.ValueString()),
+			BodyRegex:      ef.BodyRegex.ValueStringPointer(),
+			FromEmailMode:  buildPagerDutyEmailFilterRuleMode(ef.FromEmailMode.ValueString()),
+			FromEmailRegex: ef.FromEmailRegex.ValueStringPointer(),
+		})
+	}
+
+	return emailFilters
+}
+
+func buildPagerDutyEmailFilterRuleMode(s string) pagerduty.IntegrationEmailFilterRuleMode {
+	switch s {
+	case "always":
+		return pagerduty.EmailFilterRuleModeAlways
+	case "match":
+		return pagerduty.EmailFilterRuleModeMatch
+	case "no-match":
+		return pagerduty.EmailFilterRuleModeNoMatch
+	default:
+		return pagerduty.EmailFilterRuleModeInvalid
+	}
+}
+
+func buildPagerdutyServiceIntegration(model *resourceServiceIntegrationModel) pagerduty.Integration {
+	integration := pagerduty.Integration{
+		Name: model.Name.ValueString(),
+		Service: &pagerduty.APIObject{
+			ID:   model.Service.ValueString(),
+			Type: "service",
+		},
+	}
+
+	integration.Type = model.Type.ValueString()
+
+	if !model.IntegrationKey.IsNull() && !model.IntegrationKey.IsUnknown() {
+		integration.IntegrationKey = model.IntegrationKey.ValueString()
+	}
+
+	if !model.IntegrationEmail.IsNull() && !model.IntegrationEmail.IsUnknown() {
+		integration.IntegrationEmail = model.IntegrationEmail.ValueString()
+	}
+
+	if !model.Vendor.IsNull() && !model.Vendor.IsUnknown() {
+		integration.Vendor = &pagerduty.APIObject{
+			ID:   model.Vendor.ValueString(),
+			Type: "vendor",
+		}
+	}
+
+	// if !model.EmailIncidentCreation.IsNull() && !model.EmailIncidentCreation.IsUnknown() {
+	//	integration.EmailIncidentCreation = model.EmailIncidentCreation.ValueString()
+	//}
+
+	// TODO: add EmailParsingFallback to client
+	// if !model.EmailParsingFallback.IsNull() && !model.EmailParsingFallback.IsUnknown() {
+	//	integration.EmailParsingFallback = model.EmailParsingFallback.ValueString()
+	//}
+
+	if !model.EmailFilterMode.IsNull() && !model.EmailFilterMode.IsUnknown() {
+		switch model.EmailFilterMode.ValueString() {
+		case "all-email":
+			integration.EmailFilterMode = pagerduty.EmailFilterModeAll
+		case "or-rules-email":
+			integration.EmailFilterMode = pagerduty.EmailFilterModeOr
+		case "and-rules-email":
+			integration.EmailFilterMode = pagerduty.EmailFilterModeAnd
+		default:
+			integration.EmailFilterMode = pagerduty.EmailFilterModeInvalid
+		}
+	}
+
+	return integration
+}
+
+func flattenServiceIntegration(response *pagerduty.Integration) resourceServiceIntegrationModel {
+	model := resourceServiceIntegrationModel{
+		ID:      types.StringValue(response.ID),
+		Name:    types.StringValue(response.Name),
+		Type:    types.StringValue(response.Type),
+		Service: types.StringValue(response.Service.ID),
+		Vendor:  types.StringValue(response.Vendor.ID),
+	}
+
+	if response.HTMLURL != "" {
+		model.HTMLURL = types.StringValue(response.HTMLURL)
+	}
+
+	if response.Service != nil {
+		model.Service = types.StringValue(response.Service.ID)
+	}
+	if response.Vendor != nil {
+		model.Vendor = types.StringValue(response.Vendor.ID)
+	}
+
+	if response.IntegrationKey != "" {
+		model.IntegrationKey = types.StringValue(response.IntegrationKey)
+	}
+	if response.IntegrationEmail != "" {
+		model.IntegrationEmail = types.StringValue(response.IntegrationEmail)
+	}
+
+	// if response.EmailIncidentCreation != "" {
+	// 	model.EmailIncidentCreation = types.StringValue(response.EmailIncidentCreation)
+	// }
+
+	// if response.EmailParsingFallback != "" {
+	// 	model.EmailParsingFallback = types.StringValue(response.IntegrationEmail)
+	// }
+
+	if !util.IsNilFunc(response.EmailFilters) {
+		model.EmailFilter = flattenEmailFilters(response.EmailFilters)
+	}
+	return model
+}
+
+func flattenEmailFilters(list []pagerduty.IntegrationEmailFilterRule) types.List {
+	elements := []attr.Value{}
+	for _, ef := range list {
+		values := map[string]attr.Value{
+			// "id":               types.StringValue(ef.ID),
+			"id":               types.StringNull(),
+			"subject_regex":    types.StringNull(),
+			"body_regex":       types.StringNull(),
+			"from_email_regex": types.StringNull(),
+			"subject_mode":     enumtypes.NewStringValue(ef.SubjectMode.String(), emailFilterModeType),
+			"body_mode":        enumtypes.NewStringValue(ef.BodyMode.String(), emailFilterModeType),
+			"from_email_mode":  enumtypes.NewStringValue(ef.FromEmailMode.String(), emailFilterModeType),
+		}
+
+		if ef.SubjectRegex != nil {
+			values["subject_regex"] = types.StringValue(*ef.SubjectRegex)
+		}
+
+		if ef.BodyRegex != nil {
+			values["body_regex"] = types.StringValue(*ef.BodyRegex)
+		}
+
+		if ef.FromEmailRegex != nil {
+			values["from_email_regex"] = types.StringValue(*ef.FromEmailRegex)
+		}
+
+		obj := types.ObjectValueMust(emailFilterObjectType.AttrTypes, values)
+		elements = append(elements, obj)
+	}
+	return types.ListValueMust(emailFilterObjectType, elements)
+}
+
 var emailParserObjectType = types.ObjectType{
 	AttrTypes: map[string]attr.Type{
-		"action":          enumtypes.StringType{OneOf: []string{"resolve", "trigger"} /* TODO required */},
+		"action":          emailParserActionType, /* TODO required */
 		"id":              types.StringType,
 		"match_predicate": types.ListType{ElemType: emailParserMatchPredicateObjectType},
 		"value_extractor": types.ListType{ElemType: emailParserValueExtractorObjectType},
 	},
 }
 
-var emailParserActionType = enumtypes.StringType{OneOf: []string{"resolve", "trigger"} /* TODO required */}
+var emailParserActionType = enumtypes.StringType{OneOf: []string{"resolve", "trigger"}}
 
 var emailParserMatchPredicateObjectType = types.ObjectType{
 	AttrTypes: map[string]attr.Type{
@@ -179,217 +571,7 @@ var emailFilterObjectType = types.ObjectType{
 
 var emailFilterModeType = enumtypes.StringType{OneOf: []string{"always", "match", "no-match"}}
 
-func (r *resourceServiceIntegration) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var model resourceServiceIntegrationModel
-
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	plan := buildPagerdutyServiceIntegration(&model)
-	log.Printf("[INFO] Creating PagerDuty service integration %s", plan.Name)
-
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
-		response, err := r.client.CreateIntegrationWithContext(ctx, plan.Service.ID, plan)
-		if err != nil {
-			if util.IsBadRequestError(err) {
-				return retry.NonRetryableError(err)
-			}
-			return retry.RetryableError(err)
-		}
-		plan.ID = response.ID
-		return nil
-	})
-	if err != nil {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Error creating PagerDuty service integration %s", plan.Name),
-			err.Error(),
-		)
-		return
-	}
-
-	model, err = requestGetServiceIntegration(ctx, r.client, plan.Service.ID, plan.ID, false, &resp.Diagnostics)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Error reading PagerDuty service integration %s", plan.ID),
-			err.Error(),
-		)
-		return
-	}
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
-}
-
-func (r *resourceServiceIntegration) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var id types.String
-	var serviceID types.String
-
-	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("service"), &serviceID)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	log.Printf("[INFO] Reading PagerDuty service integration %s", id)
-
-	retryNotFound := true
-	state, err := requestGetServiceIntegration(ctx, r.client, serviceID.ValueString(), id.ValueString(), retryNotFound, &resp.Diagnostics)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Error reading PagerDuty service integration %s", id),
-			err.Error(),
-		)
-		return
-	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
-}
-
-func (r *resourceServiceIntegration) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var model resourceServiceIntegrationModel
-
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	plan := buildPagerdutyServiceIntegration(&model)
-	if plan.ID == "" {
-		var id string
-		req.State.GetAttribute(ctx, path.Root("id"), &id)
-		plan.ID = id
-	}
-	log.Printf("[INFO] Updating PagerDuty service integration %s", plan.ID)
-
-	serviceIntegration, err := r.client.UpdateIntegrationWithContext(ctx, plan.ID, plan)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Error updating PagerDuty service integration %s", plan.ID),
-			err.Error(),
-		)
-		return
-	}
-	model = flattenServiceIntegration(serviceIntegration)
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
-}
-
-func (r *resourceServiceIntegration) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var id types.String
-	var serviceID types.String
-
-	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("service"), &serviceID)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	log.Printf("[INFO] Deleting PagerDuty service integration %s for %s", id, serviceID)
-
-	err := r.client.DeleteIntegrationWithContext(ctx, serviceID.ValueString(), id.ValueString())
-	if err != nil && !util.IsNotFoundError(err) {
-		resp.Diagnostics.AddError(
-			fmt.Sprintf("Error deleting PagerDuty service integration %s", id),
-			err.Error(),
-		)
-		return
-	}
-	resp.State.RemoveResource(ctx)
-}
-
-func (r *resourceServiceIntegration) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	resp.Diagnostics.Append(ConfigurePagerdutyClient(&r.client, req.ProviderData)...)
-}
-
-func (r *resourceServiceIntegration) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
-
-type resourceServiceIntegrationModel struct {
-	ID types.String `tfsdk:"id"`
-}
-
-func requestGetServiceIntegration(ctx context.Context, client *pagerduty.Client, serviceID, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceServiceIntegrationModel, error) {
-	var model resourceServiceIntegrationModel
-	opts := pagerduty.GetIntegrationOptions{}
-
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
-		serviceIntegration, err := client.GetIntegrationWithContext(ctx, serviceID, id, opts)
-		if err != nil {
-			if util.IsBadRequestError(err) {
-				return retry.NonRetryableError(err)
-			}
-			if !retryNotFound && util.IsNotFoundError(err) {
-				return retry.NonRetryableError(err)
-			}
-			return retry.RetryableError(err)
-		}
-		model = flattenServiceIntegration(serviceIntegration)
-		return nil
-	})
-
-	return model, err
-}
-
-func buildPagerdutyServiceIntegration(model *resourceServiceIntegrationModel) pagerduty.Integration {
-	serviceIntegration := pagerduty.Integration{}
-	return serviceIntegration
-}
-
-func flattenServiceIntegration(response *pagerduty.Integration) resourceServiceIntegrationModel {
-	model := resourceServiceIntegrationModel{
-		ID: types.StringValue(response.ID),
-	}
-	return model
-}
-
 /*
-func resourcePagerDutyServiceIntegration() *schema.Resource {
-	return &schema.Resource{
-		Create:        resourcePagerDutyServiceIntegrationCreate,
-		Read:          resourcePagerDutyServiceIntegrationRead,
-		Update:        resourcePagerDutyServiceIntegrationUpdate,
-		Delete:        resourcePagerDutyServiceIntegrationDelete,
-		CustomizeDiff: customizeServiceIntegrationDiff(),
-		Importer: &schema.ResourceImporter{
-			State: resourcePagerDutyServiceIntegrationImport,
-		},
-		Schema: map[string]*schema.Schema{
-			"integration_key": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Computed: true,
-				ValidateDiagFunc: func(i interface{}, path cty.Path) diag.Diagnostics {
-					v, ok := i.(string)
-					if !ok {
-						return diag.Diagnostics{
-							{
-								Severity:      diag.Error,
-								Summary:       "Expected String",
-								AttributePath: path,
-							},
-						}
-					}
-
-					if v != "" {
-						return diag.Diagnostics{
-							{
-								Severity:      diag.Warning,
-								Summary:       "Argument is deprecated. Assignments or updates to this attribute are not supported by Service Integrations API, it is a read-only value. Input support will be dropped in upcomming major release",
-								AttributePath: path,
-							},
-						}
-					}
-					return diag.Diagnostics{}
-				},
-			},
-		},
-	}
-}
-
 func customizeServiceIntegrationDiff() schema.CustomizeDiffFunc {
 	flattenEFConfigBlock := func(v interface{}) []map[string]interface{} {
 		var efConfigBlock []map[string]interface{}
@@ -465,69 +647,6 @@ func customizeServiceIntegrationDiff() schema.CustomizeDiffFunc {
 	}
 }
 
-func buildServiceIntegrationStruct(d *schema.ResourceData) (*pagerduty.Integration, error) {
-	serviceIntegration := &pagerduty.Integration{
-		Name: d.Get("name").(string),
-		Type: "service_integration",
-		Service: &pagerduty.ServiceReference{
-			Type: "service",
-			ID:   d.Get("service").(string),
-		},
-	}
-
-	if attr, ok := d.GetOk("integration_key"); ok {
-		serviceIntegration.IntegrationKey = attr.(string)
-	}
-
-	if attr, ok := d.GetOk("integration_email"); ok {
-		serviceIntegration.IntegrationEmail = attr.(string)
-	}
-
-	if attr, ok := d.GetOk("type"); ok {
-		serviceIntegration.Type = attr.(string)
-	}
-
-	if attr, ok := d.GetOk("vendor"); ok {
-		serviceIntegration.Vendor = &pagerduty.VendorReference{
-			ID:   attr.(string),
-			Type: "vendor",
-		}
-	}
-	if attr, ok := d.GetOk("email_incident_creation"); ok {
-		serviceIntegration.EmailIncidentCreation = attr.(string)
-	}
-
-	if attr, ok := d.GetOk("email_filter_mode"); ok {
-		serviceIntegration.EmailFilterMode = attr.(string)
-	}
-
-	if attr, ok := d.GetOk("email_parsing_fallback"); ok {
-		serviceIntegration.EmailParsingFallback = attr.(string)
-	}
-
-	if attr, ok := d.GetOk("email_parser"); ok {
-		parcers, err := expandEmailParsers(attr)
-		if err != nil {
-			log.Printf("[ERR] Parce PagerDuty service integration email parcers fail %s", err)
-		}
-		serviceIntegration.EmailParsers = parcers
-	}
-
-	if attr, ok := d.GetOk("email_filter"); ok {
-		filters, err := expandEmailFilters(attr)
-		if err != nil {
-			log.Printf("[ERR] Parce PagerDuty service integration email filters fail %s", err)
-		}
-		serviceIntegration.EmailFilters = filters
-	}
-
-	if serviceIntegration.Type == "generic_email_inbound_integration" && serviceIntegration.IntegrationEmail == "" {
-		return nil, errors.New(errEmailIntegrationMustHaveEmail)
-	}
-
-	return serviceIntegration, nil
-}
-
 func expandEmailParsers(v interface{}) ([]*pagerduty.EmailParser, error) {
 	var emailParsers []*pagerduty.EmailParser
 
@@ -595,48 +714,6 @@ func expandEmailParsers(v interface{}) ([]*pagerduty.EmailParser, error) {
 	}
 
 	return emailParsers, nil
-}
-
-func expandEmailFilters(v interface{}) ([]*pagerduty.EmailFilter, error) {
-	var emailFilters []*pagerduty.EmailFilter
-
-	for _, ef := range v.([]interface{}) {
-		ref := ef.(map[string]interface{})
-
-		emailFilter := &pagerduty.EmailFilter{
-			ID:             ref["id"].(string),
-			SubjectMode:    ref["subject_mode"].(string),
-			SubjectRegex:   ref["subject_regex"].(string),
-			BodyMode:       ref["body_mode"].(string),
-			BodyRegex:      ref["body_regex"].(string),
-			FromEmailMode:  ref["from_email_mode"].(string),
-			FromEmailRegex: ref["from_email_regex"].(string),
-		}
-
-		emailFilters = append(emailFilters, emailFilter)
-	}
-
-	return emailFilters, nil
-}
-
-func flattenEmailFilters(v []*pagerduty.EmailFilter) []map[string]interface{} {
-	var emailFilters []map[string]interface{}
-
-	for _, ef := range v {
-		emailFilter := map[string]interface{}{
-			"id":               ef.ID,
-			"subject_mode":     ef.SubjectMode,
-			"subject_regex":    ef.SubjectRegex,
-			"body_mode":        ef.BodyMode,
-			"body_regex":       ef.BodyRegex,
-			"from_email_mode":  ef.FromEmailMode,
-			"from_email_regex": ef.FromEmailRegex,
-		}
-
-		emailFilters = append(emailFilters, emailFilter)
-	}
-
-	return emailFilters
 }
 
 func flattenEmailParsers(v []*pagerduty.EmailParser) []map[string]interface{} {
@@ -708,209 +785,5 @@ func flattenEmailParsers(v []*pagerduty.EmailParser) []map[string]interface{} {
 	}
 
 	return emailParsers
-}
-
-func fetchPagerDutyServiceIntegration(d *schema.ResourceData, meta interface{}, errCallback func(error, *schema.ResourceData) error) error {
-	client, err := meta.(*Config).Client()
-	if err != nil {
-		return err
-	}
-
-	service := d.Get("service").(string)
-
-	o := &pagerduty.GetIntegrationOptions{}
-
-	return retry.Retry(2*time.Minute, func() *retry.RetryError {
-		serviceIntegration, _, err := client.Services.GetIntegration(service, d.Id(), o)
-		if err != nil {
-			log.Printf("[WARN] Service integration read error")
-			if isErrCode(err, http.StatusBadRequest) {
-				return retry.NonRetryableError(err)
-			}
-
-			errResp := errCallback(err, d)
-			if errResp != nil {
-				return retry.RetryableError(errResp)
-			}
-
-			return nil
-		}
-
-		if err := d.Set("name", serviceIntegration.Name); err != nil {
-			return retry.RetryableError(err)
-		}
-
-		if err := d.Set("type", serviceIntegration.Type); err != nil {
-			return retry.RetryableError(err)
-		}
-
-		if serviceIntegration.Service != nil {
-			if err := d.Set("service", serviceIntegration.Service.ID); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.Vendor != nil {
-			if err := d.Set("vendor", serviceIntegration.Vendor.ID); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.IntegrationKey != "" {
-			if err := d.Set("integration_key", serviceIntegration.IntegrationKey); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.IntegrationEmail != "" {
-			if err := d.Set("integration_email", serviceIntegration.IntegrationEmail); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.EmailIncidentCreation != "" {
-			if err := d.Set("email_incident_creation", serviceIntegration.EmailIncidentCreation); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.EmailFilterMode != "" {
-			if err := d.Set("email_filter_mode", serviceIntegration.EmailFilterMode); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.EmailParsingFallback != "" {
-			if err := d.Set("email_parsing_fallback", serviceIntegration.EmailParsingFallback); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.HTMLURL != "" {
-			if err := d.Set("html_url", serviceIntegration.HTMLURL); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.EmailFilters != nil {
-			if err := d.Set("email_filter", flattenEmailFilters(serviceIntegration.EmailFilters)); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		if serviceIntegration.EmailParsers != nil {
-			if err := d.Set("email_parser", flattenEmailParsers(serviceIntegration.EmailParsers)); err != nil {
-				return retry.RetryableError(err)
-			}
-		}
-
-		return nil
-	})
-}
-
-func resourcePagerDutyServiceIntegrationCreate(d *schema.ResourceData, meta interface{}) error {
-	client, err := meta.(*Config).Client()
-	if err != nil {
-		return err
-	}
-
-	serviceIntegration, err := buildServiceIntegrationStruct(d)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("[INFO] Creating PagerDuty service integration %s", serviceIntegration.Name)
-
-	service := d.Get("service").(string)
-
-	retryErr := retry.Retry(2*time.Minute, func() *retry.RetryError {
-		if serviceIntegration, _, err := client.Services.CreateIntegration(service, serviceIntegration); err != nil {
-			if isErrCode(err, 400) {
-				return retry.RetryableError(err)
-			}
-
-			return retry.NonRetryableError(err)
-		} else if serviceIntegration != nil {
-			d.SetId(serviceIntegration.ID)
-		}
-		return nil
-	})
-
-	if retryErr != nil {
-		return retryErr
-	}
-
-	return fetchPagerDutyServiceIntegration(d, meta, genError)
-}
-
-func resourcePagerDutyServiceIntegrationRead(d *schema.ResourceData, meta interface{}) error {
-	log.Printf("[INFO] Reading PagerDuty service integration %s", d.Id())
-	return fetchPagerDutyServiceIntegration(d, meta, handleNotFoundError)
-}
-
-func resourcePagerDutyServiceIntegrationUpdate(d *schema.ResourceData, meta interface{}) error {
-	client, err := meta.(*Config).Client()
-	if err != nil {
-		return err
-	}
-
-	serviceIntegration, err := buildServiceIntegrationStruct(d)
-	if err != nil {
-		return err
-	}
-
-	service := d.Get("service").(string)
-
-	log.Printf("[INFO] Updating PagerDuty service integration %s", d.Id())
-
-	if _, _, err := client.Services.UpdateIntegration(service, d.Id(), serviceIntegration); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func resourcePagerDutyServiceIntegrationDelete(d *schema.ResourceData, meta interface{}) error {
-	client, err := meta.(*Config).Client()
-	if err != nil {
-		return err
-	}
-
-	service := d.Get("service").(string)
-
-	log.Printf("[INFO] Removing PagerDuty service integration %s", d.Id())
-
-	if _, err := client.Services.DeleteIntegration(service, d.Id()); err != nil {
-		return err
-	}
-
-	d.SetId("")
-
-	return nil
-}
-
-func resourcePagerDutyServiceIntegrationImport(d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
-	client, err := meta.(*Config).Client()
-	if err != nil {
-		return []*schema.ResourceData{}, err
-	}
-
-	ids := strings.Split(d.Id(), ".")
-
-	if len(ids) != 2 {
-		return []*schema.ResourceData{}, fmt.Errorf("Error importing pagerduty_service_integration. Expecting an importation ID formed as '<service_id>.<integration_id>'")
-	}
-	sid, id := ids[0], ids[1]
-
-	_, _, err = client.Services.GetIntegration(sid, id, nil)
-	if err != nil {
-		return []*schema.ResourceData{}, err
-	}
-
-	// These are set because an import also calls Read behind the scenes
-	d.SetId(id)
-	d.Set("service", sid)
-
-	return []*schema.ResourceData{d}, nil
 }
 */
