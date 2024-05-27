@@ -12,6 +12,7 @@ import (
 	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
+// Deprecated: Migrated to pagerdutyplugin.resourceEscalationPolicy. Kept for testing purposes.
 func resourcePagerDutyEscalationPolicy() *schema.Resource {
 	return &schema.Resource{
 		Create: resourcePagerDutyEscalationPolicyCreate,
