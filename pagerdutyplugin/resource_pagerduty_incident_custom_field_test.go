@@ -93,7 +93,7 @@ func TestAccPagerDutyIncidentCustomField_BasicWithDescription(t *testing.T) {
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccCheckPagerDutyIncidentCustomFieldConfigWithDescription(fieldName, description, "string"),
+				Config: testAccCheckPagerDutyIncidentCustomFieldConfig(fieldName, description, "string"),
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPagerDutyIncidentCustomFieldExists("pagerduty_incident_custom_field.input"),
 					resource.TestCheckResourceAttr(
@@ -167,18 +167,6 @@ resource "pagerduty_incident_custom_field" "input" {
   field_type = "single_value_fixed"
 }
 `, name, datatype)
-}
-
-func testAccCheckPagerDutyIncidentCustomFieldConfigWithDescription(name, description, datatype string) string {
-	return fmt.Sprintf(`
-resource "pagerduty_incident_custom_field" "input" {
-  name = "%[1]s"
-  display_name = "%[1]s"
-  data_type = "%[2]s"
-  description = "%[3]s"
-  field_type = "single_value_fixed"
-}
-`, name, datatype, description)
 }
 
 func testAccCheckPagerDutyIncidentCustomFieldDestroy(s *terraform.State) error {
