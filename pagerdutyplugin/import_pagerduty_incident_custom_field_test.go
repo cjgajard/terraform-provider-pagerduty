@@ -16,7 +16,7 @@ func TestAccPagerDutyIncidentCustomField_import(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{
@@ -39,7 +39,7 @@ func TestAccPagerDutyIncidentCustomField_import_no_description(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{

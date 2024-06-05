@@ -65,6 +65,7 @@ func (p *Provider) Resources(ctx context.Context) [](func() resource.Resource) {
 		func() resource.Resource { return &resourceBusinessService{} },
 		func() resource.Resource { return &resourceExtensionServiceNow{} },
 		func() resource.Resource { return &resourceExtension{} },
+		func() resource.Resource { return &resourceIncidentCustomField{} },
 		func() resource.Resource { return &resourceTagAssignment{} },
 		func() resource.Resource { return &resourceTag{} },
 		func() resource.Resource { return &resourceUserHandoffNotificationRule{} },

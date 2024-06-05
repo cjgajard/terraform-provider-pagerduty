@@ -186,3 +186,23 @@ func fetchFieldOption(ctx context.Context, fieldID string, d *schema.ResourceDat
 		return nil
 	})
 }
+
+func flattenIncidentCustomField(d *schema.ResourceData, field *pagerduty.IncidentCustomField) error {
+	d.SetId(field.ID)
+	d.Set("name", field.Name)
+	if field.Description != nil {
+		d.Set("description", *(field.Description))
+	}
+	d.Set("display_name", field.DisplayName)
+	d.Set("data_type", field.DataType.String())
+	d.Set("field_type", field.FieldType.String())
+
+	if field.DefaultValue != nil {
+		v, err := convertIncidentCustomFieldValueForFlatten(field.DefaultValue, field.FieldType.IsMultiValue())
+		if err != nil {
+			return err
+		}
+		d.Set("default_value", v)
+	}
+	return nil
+}

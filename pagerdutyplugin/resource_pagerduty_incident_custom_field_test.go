@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
 func init() {
@@ -23,17 +23,8 @@ func init() {
 }
 
 func testSweepIncidentCustomField(region string) error {
-	config, err := sharedConfigForRegion(region)
-	if err != nil {
-		return err
-	}
-
-	client, err := config.Client()
-	if err != nil {
-		return err
-	}
-
-	resp, _, err := client.IncidentCustomFields.ListContext(context.Background(), nil)
+	ctx := context.Background()
+	resp, err := testAccProvider.client.ListCustomFieldsWithContext(ctx, pagerduty.ListCustomFieldsOptions{})
 	if err != nil {
 		return err
 	}
@@ -41,7 +32,7 @@ func testSweepIncidentCustomField(region string) error {
 	for _, customField := range resp.Fields {
 		if strings.HasPrefix(customField.Name, "tf_") {
 			log.Printf("Destroying field %s (%s)", customField.Name, customField.ID)
-			if _, err := client.IncidentCustomFields.DeleteContext(context.Background(), customField.ID); err != nil {
+			if err := testAccProvider.client.DeleteCustomFieldWithContext(ctx, customField.ID); err != nil {
 				return err
 			}
 		}
@@ -60,7 +51,7 @@ func TestAccPagerDutyIncidentCustomFields_Basic(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{
@@ -98,7 +89,7 @@ func TestAccPagerDutyIncidentCustomField_BasicWithDescription(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{
@@ -125,7 +116,7 @@ func TestAccPagerDutyIncidentCustomFields_UnknownDataType(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{
@@ -144,11 +135,11 @@ func TestAccPagerDutyIncidentCustomFields_IllegalDataType(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		CheckDestroy:      testAccCheckPagerDutyIncidentCustomFieldDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config:      testAccCheckPagerDutyIncidentCustomFieldConfig(fieldName, "", pagerduty.IncidentCustomFieldDataTypeUnknown.String()),
+				Config:      testAccCheckPagerDutyIncidentCustomFieldConfig(fieldName, "", "unknown"),
 				ExpectError: regexp.MustCompile("Unknown data_type unknown"),
 			},
 		},
@@ -191,17 +182,19 @@ resource "pagerduty_incident_custom_field" "input" {
 }
 
 func testAccCheckPagerDutyIncidentCustomFieldDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
+	ctx := context.Background()
+
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_incident_custom_field" {
 			continue
 		}
 
-		if _, _, err := client.IncidentCustomFields.GetContext(context.Background(), r.Primary.ID, nil); err == nil {
+		_, err := testAccProvider.client.GetCustomFieldWithContext(ctx, r.Primary.ID, pagerduty.GetCustomFieldOptions{})
+		if err == nil {
 			return fmt.Errorf("field still exists")
 		}
-
 	}
+
 	return nil
 }
 
@@ -215,9 +208,7 @@ func testAccCheckPagerDutyIncidentCustomFieldExists(n string) resource.TestCheck
 			return fmt.Errorf("no field ID is set")
 		}
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-
-		found, _, err := client.IncidentCustomFields.GetContext(context.Background(), rs.Primary.ID, nil)
+		found, err := testAccProvider.client.GetCustomFieldWithContext(context.Background(), rs.Primary.ID, pagerduty.GetCustomFieldOptions{})
 		if err != nil {
 			return err
 		}

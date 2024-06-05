@@ -143,7 +143,6 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_incident_workflow":                             resourcePagerDutyIncidentWorkflow(),
 			"pagerduty_incident_workflow_trigger":                     resourcePagerDutyIncidentWorkflowTrigger(),
 			"pagerduty_automation_actions_action_service_association": resourcePagerDutyAutomationActionsActionServiceAssociation(),
-			"pagerduty_incident_custom_field":                         resourcePagerDutyIncidentCustomField(),
 			"pagerduty_incident_custom_field_option":                  resourcePagerDutyIncidentCustomFieldOption(),
 		},
 	}
