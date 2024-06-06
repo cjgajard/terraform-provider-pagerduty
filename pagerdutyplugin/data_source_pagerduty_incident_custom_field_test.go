@@ -16,7 +16,7 @@ func TestAccDataSourcePagerDutyIncidentCustomField(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentCustomFieldTests(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: testAccDataSourcePagerDutyIncidentCustomFieldConfig(fieldName),
