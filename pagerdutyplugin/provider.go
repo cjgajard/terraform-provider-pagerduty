@@ -18,7 +18,12 @@ import (
 )
 
 type Provider struct {
-	client *pagerduty.Client
+	data ProviderData
+}
+
+type ProviderData struct {
+	client      *pagerduty.Client
+	slackClient *pagerduty.Client
 }
 
 func (p *Provider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -73,6 +78,7 @@ func (p *Provider) Resources(_ context.Context) [](func() resource.Resource) {
 		func() resource.Resource { return &resourceTagAssignment{} },
 		func() resource.Resource { return &resourceTag{} },
 		func() resource.Resource { return &resourceUserHandoffNotificationRule{} },
+		func() resource.Resource { return &resourceSlackConnection{} },
 	}
 }
 
@@ -179,9 +185,19 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot obtain plugin client", err.Error())
 	}
-	p.client = client
-	resp.DataSourceData = client
-	resp.ResourceData = client
+
+	slackClient, err := config.SlackClient(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot obtain plugin slack client", err.Error())
+	}
+
+	data := ProviderData{
+		client:      client,
+		slackClient: slackClient,
+	}
+
+	resp.DataSourceData = data
+	resp.ResourceData = data
 }
 
 type UseAppOauthScopedToken struct {

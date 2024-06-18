@@ -130,7 +130,6 @@ func Provider(isMux bool) *schema.Provider {
 			"pagerduty_business_service":                              resourcePagerDutyBusinessService(),
 			"pagerduty_response_play":                                 resourcePagerDutyResponsePlay(),
 			"pagerduty_service_event_rule":                            resourcePagerDutyServiceEventRule(),
-			"pagerduty_slack_connection":                              resourcePagerDutySlackConnection(),
 			"pagerduty_business_service_subscriber":                   resourcePagerDutyBusinessServiceSubscriber(),
 			"pagerduty_webhook_subscription":                          resourcePagerDutyWebhookSubscription(),
 			"pagerduty_event_orchestration":                           resourcePagerDutyEventOrchestration(),

@@ -229,6 +229,14 @@ func setWebhookResourceData(d *schema.ResourceData, webhook *pagerduty.WebhookSu
 	d.Set("filter", flattenFilter(webhook.Filter))
 }
 
+func expandConfigList(v interface{}) []string {
+	items := []string{}
+	for _, i := range v.([]interface{}) {
+		items = append(items, i.(string))
+	}
+	return items
+}
+
 func expandDeliveryMethod(v interface{}) pagerduty.DeliveryMethod {
 	dmMap := v.([]interface{})[0].(map[string]interface{})
 
@@ -284,6 +292,16 @@ func flattenFilter(filter pagerduty.Filter) []map[string]interface{} {
 	}
 	filters = append(filters, filterMap)
 	return filters
+}
+
+func flattenConfigList(list []string) interface{} {
+	var items []interface{}
+
+	for _, i := range list {
+		items = append(items, i)
+	}
+
+	return items
 }
 
 func flattenCustomHeader(customHeaders []*pagerduty.CustomHeaders) []map[string]interface{} {

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
@@ -19,8 +18,6 @@ import (
 
 // Config defines the configuration options for the PagerDuty client
 type Config struct {
-	mu sync.Mutex
-
 	// The PagerDuty API URL
 	APIURL string
 
@@ -50,9 +47,6 @@ type Config struct {
 
 	// Parameters for fine-grained access control
 	AppOauthScopedToken *AppOauthScopedToken
-
-	// API wrapper
-	client *pagerduty.Client
 }
 
 type AppOauthScopedToken struct {
@@ -67,14 +61,49 @@ for more information on providing credentials for this provider.
 
 // Client returns a PagerDuty client, initializing when necessary.
 func (c *Config) Client(ctx context.Context) (*pagerduty.Client, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Return the previously-configured client if available.
-	if c.client != nil {
-		return c.client, nil
+	clientOpts := []pagerduty.ClientOptions{}
+	if c.AppOauthScopedToken != nil {
+		tokenFile := getTokenFilepath()
+		account := fmt.Sprintf("as_account-%s.%s", c.ServiceRegion, c.AppOauthScopedToken.Subdomain)
+		accountAndScopes := []string{account}
+		accountAndScopes = append(accountAndScopes, availableOauthScopes()...)
+		opt := pagerduty.WithScopedOAuthAppTokenSource(pagerduty.NewFileTokenSource(
+			ctx,
+			c.AppOauthScopedToken.ClientID,
+			c.AppOauthScopedToken.ClientSecret,
+			accountAndScopes,
+			tokenFile,
+		))
+		clientOpts = append(clientOpts, opt)
 	}
 
+	// Validate that the PagerDuty token is set
+	if c.Token == "" && c.AppOauthScopedToken == nil {
+		return nil, fmt.Errorf(invalidCreds)
+	}
+
+	client, err := c.getClient(ctx, c.Token, clientOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("[INFO] PagerDuty plugin client configured")
+	return client, err
+}
+
+// SlackClient returns a PagerDuty client using an special token for Slack.
+func (c *Config) SlackClient(ctx context.Context) (*pagerduty.Client, error) {
+	if c.UserToken == "" {
+		return nil, fmt.Errorf(invalidCreds)
+	}
+	slackClient, err := c.getClient(ctx, c.UserToken, []pagerduty.ClientOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return slackClient, nil
+}
+
+func (c *Config) getClient(ctx context.Context, token string, opts []pagerduty.ClientOptions) (*pagerduty.Client, error) {
 	httpClient := http.DefaultClient
 	httpClient.Timeout = 1 * time.Minute
 
@@ -98,26 +127,7 @@ func (c *Config) Client(ctx context.Context) (*pagerduty.Client, error) {
 		pagerduty.WithTerraformProvider(c.TerraformVersion),
 		pagerduty.WithRetryPolicy(maxRetries, retryInterval),
 	}
-
-	if c.AppOauthScopedToken != nil {
-		tokenFile := getTokenFilepath()
-		account := fmt.Sprintf("as_account-%s.%s", c.ServiceRegion, c.AppOauthScopedToken.Subdomain)
-		accountAndScopes := []string{account}
-		accountAndScopes = append(accountAndScopes, availableOauthScopes()...)
-		opt := pagerduty.WithScopedOAuthAppTokenSource(pagerduty.NewFileTokenSource(
-			ctx,
-			c.AppOauthScopedToken.ClientID,
-			c.AppOauthScopedToken.ClientSecret,
-			accountAndScopes,
-			tokenFile,
-		))
-		clientOpts = append(clientOpts, opt)
-	}
-
-	// Validate that the PagerDuty token is set
-	if c.Token == "" && c.AppOauthScopedToken == nil {
-		return nil, fmt.Errorf(invalidCreds)
-	}
+	clientOpts = append(clientOpts, opts...)
 	client := pagerduty.NewClient(c.Token, clientOpts...)
 
 	if !c.SkipCredsValidation {
@@ -127,10 +137,7 @@ func (c *Config) Client(ctx context.Context) (*pagerduty.Client, error) {
 			return nil, fmt.Errorf(fmt.Sprintf("%s\n%s", err, invalidCreds))
 		}
 	}
-	c.client = client
-
-	log.Printf("[INFO] PagerDuty plugin client configured")
-	return c.client, nil
+	return client, nil
 }
 
 func WithHTTPClient(httpClient pagerduty.HTTPClient) pagerduty.ClientOptions {
@@ -217,11 +224,31 @@ func availableOauthScopes() []string {
 // the property of any datasource or resource struct from the general
 // configuration of the provider.
 func ConfigurePagerdutyClient(dst **pagerduty.Client, providerData any) diag.Diagnostics {
-	var diags diag.Diagnostics
-	if providerData == nil {
-		return diags
+	data, d := getPagerdutyProviderData(dst, providerData)
+	if d.HasError() {
+		return d
 	}
-	client, ok := providerData.(*pagerduty.Client)
+	*dst = data.client
+	return d
+}
+
+func ConfigurePagerdutySlackClient(dst **pagerduty.Client, providerData any) diag.Diagnostics {
+	data, d := getPagerdutyProviderData(dst, providerData)
+	if d.HasError() {
+		return d
+	}
+	*dst = data.slackClient
+	return d
+}
+
+func getPagerdutyProviderData(dst any, providerData any) (ProviderData, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	if providerData == nil {
+		return ProviderData{}, diags
+	}
+
+	data, ok := providerData.(ProviderData)
 	if !ok {
 		diags.AddError(
 			"Unexpected Data Source Configure Type",
@@ -231,15 +258,16 @@ func ConfigurePagerdutyClient(dst **pagerduty.Client, providerData any) diag.Dia
 				providerData,
 			),
 		)
-		return diags
+		return data, diags
 	}
-	if dst == nil {
+
+	if util.IsNilFunc(dst) {
 		diags.AddError(
-			"Bad usage of ConfigurePagerdutyClient",
+			"Bad usage of getPagerdutyProviderData",
 			"Received a null client destination",
 		)
-		return diags
+		return data, diags
 	}
-	*dst = client
-	return diags
+
+	return data, diags
 }
