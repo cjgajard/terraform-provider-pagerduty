@@ -6,7 +6,6 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -150,7 +149,7 @@ func (r *resourceServiceDependency) Create(ctx context.Context, req resource.Cre
 		Relationships: []*pagerduty.ServiceDependency{serviceDependency},
 	}
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		resourceServiceDependencyMu.Lock()
 		list, err := r.client.AssociateServiceDependenciesWithContext(ctx, dependencies)
 		resourceServiceDependencyMu.Unlock()
@@ -261,7 +260,7 @@ func (r *resourceServiceDependency) Delete(ctx context.Context, req resource.Del
 		serviceDependency.DependentService.Type = convertServiceDependencyType(serviceDependency.DependentService.Type)
 	}
 
-	err = retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err = retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		_, err := r.client.DisassociateServiceDependenciesWithContext(ctx, &pagerduty.ListServiceDependencies{
 			Relationships: []*pagerduty.ServiceDependency{serviceDependency},
 		})
@@ -291,7 +290,7 @@ func (r *resourceServiceDependency) Delete(ctx context.Context, req resource.Del
 func (r *resourceServiceDependency) requestGetServiceDependency(ctx context.Context, id, depID, rt string) (*pagerduty.ServiceDependency, error) {
 	var found *pagerduty.ServiceDependency
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		var list *pagerduty.ListServiceDependencies
 		var err error
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -127,7 +126,7 @@ func (r *resourceExtension) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 	log.Printf("[INFO] Reading PagerDuty extension %s", state.ID)
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		extension, err := r.client.GetExtensionWithContext(ctx, state.ID.ValueString())
 		if err != nil {
 			if util.IsBadRequestError(err) || util.IsNotFoundError(err) {
@@ -237,7 +236,7 @@ type resourceExtensionModel struct {
 
 func requestGetExtension(ctx context.Context, client *pagerduty.Client, id string, accessToken *string, diags *diag.Diagnostics) resourceExtensionModel {
 	var model resourceExtensionModel
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		extension, err := client.GetExtensionWithContext(ctx, id)
 		if err != nil {
 			if util.IsBadRequestError(err) {

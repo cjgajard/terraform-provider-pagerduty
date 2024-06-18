@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -95,7 +94,7 @@ func (r *resourceSlackConnection) Create(ctx context.Context, req resource.Creat
 	plan := buildPagerdutySlackConnection(ctx, &model, &resp.Diagnostics)
 	log.Printf("[INFO] Creating PagerDuty slack connection for source %s and slack channel %s", plan.SourceID, plan.ChannelID)
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		response, err := r.client.CreateSlackConnectionWithContext(ctx, workspaceID, plan)
 		if err != nil {
 			if util.IsBadRequestError(err) {
@@ -191,7 +190,7 @@ func (r *resourceSlackConnection) Delete(ctx context.Context, req resource.Delet
 	}
 	log.Printf("[INFO] Deleting PagerDuty slack connection %s", id)
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		err := r.client.DeleteSlackConnectionWithContext(ctx, workspaceID.ValueString(), id.ValueString())
 		if err != nil {
 			if util.IsBadRequestError(err) {
@@ -247,7 +246,7 @@ type resourceSlackConnectionModel struct {
 func requestGetSlackConnection(ctx context.Context, client *pagerduty.Client, workspaceID, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceSlackConnectionModel, error) {
 	var model resourceSlackConnectionModel
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		slackConnection, err := client.GetSlackConnectionWithContext(ctx, workspaceID, id)
 		if err != nil {
 			if util.IsBadRequestError(err) {
@@ -284,7 +283,7 @@ func buildPagerdutySlackConnectionConfig(ctx context.Context, list types.List, d
 		Priorities types.List   `tfsdk:"priorities"`
 		Urgency    types.String `tfsdk:"urgency"`
 	}
-	if d := list.ElementsAs(ctx, target, false); d.HasError() {
+	if d := list.ElementsAs(ctx, &target, false); d.HasError() {
 		return nil
 	}
 	obj := target[0]

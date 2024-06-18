@@ -21,7 +21,7 @@ func init() {
 }
 
 func testSweepTag(_ string) error {
-	client := testAccProvider.client
+	client := testAccProvider.data.client
 	ctx := context.Background()
 
 	resp, err := client.ListTags(pagerduty.ListTagOptions{})
@@ -71,7 +71,7 @@ func TestAccPagerDutyTag_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyTagDestroy(s *terraform.State) error {
-	client := testAccProvider.client
+	client := testAccProvider.data.client
 	ctx := context.Background()
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_tag" {
@@ -86,7 +86,7 @@ func testAccCheckPagerDutyTagDestroy(s *terraform.State) error {
 
 func testAccCheckPagerDutyTagExists(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		client := testAccProvider.client
+		client := testAccProvider.data.client
 		ctx := context.Background()
 
 		rs, ok := s.RootModule().Resources[n]
@@ -111,7 +111,7 @@ func testAccCheckPagerDutyTagExists(n string) resource.TestCheckFunc {
 
 func testAccExternallyDestroyTag(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		client := testAccProvider.client
+		client := testAccProvider.data.client
 		ctx := context.Background()
 
 		rs, ok := s.RootModule().Resources[n]

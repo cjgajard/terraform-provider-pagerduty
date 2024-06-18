@@ -3,6 +3,7 @@ package pagerduty
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -93,8 +94,16 @@ func testAccPreCheckPagerDutyAbility(t *testing.T, ability string) {
 		t.Fatal("PAGERDUTY_USER_TOKEN must be set for acceptance tests")
 	}
 
+	client := testAccProvider.data.client
 	ctx := context.Background()
-	if err := testAccProvider.client.TestAbilityWithContext(ctx, ability); err != nil {
+	if err := client.TestAbilityWithContext(ctx, ability); err != nil {
 		t.Skipf("Missing ability: %s. Skipping test", ability)
+	}
+}
+
+func init() {
+	if v, err := strconv.Atoi(os.Getenv("PAGERDUTY_ACC_TIMEOUT_SECONDS")); err == nil {
+		RetryTime = time.Duration(v) * time.Second
+		RetryTimeLong = time.Duration(v) * time.Second
 	}
 }

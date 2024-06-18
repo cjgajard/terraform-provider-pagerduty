@@ -56,6 +56,7 @@ func TestAccPagerDutyUserHandoffNotificationRule_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyUserHandoffNotificationRuleDestroy(s *terraform.State) error {
+	client := testAccProvider.data.client
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_user_handoff_notification_rule" {
 			continue
@@ -64,7 +65,7 @@ func testAccCheckPagerDutyUserHandoffNotificationRuleDestroy(s *terraform.State)
 		ruleID := r.Primary.ID
 
 		ctx := context.Background()
-		if _, err := testAccProvider.client.GetUserOncallHandoffNotificationRuleWithContext(ctx, userID, ruleID); err == nil {
+		if _, err := client.GetUserOncallHandoffNotificationRuleWithContext(ctx, userID, ruleID); err == nil {
 			return fmt.Errorf("user handoff notification rule still exists")
 		}
 
@@ -73,6 +74,7 @@ func testAccCheckPagerDutyUserHandoffNotificationRuleDestroy(s *terraform.State)
 }
 
 func testAccCheckPagerDutyUserHandoffNotificationRuleExists(n string) resource.TestCheckFunc {
+	client := testAccProvider.data.client
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
@@ -86,7 +88,7 @@ func testAccCheckPagerDutyUserHandoffNotificationRuleExists(n string) resource.T
 		}
 
 		ctx := context.Background()
-		found, err := testAccProvider.client.GetUserOncallHandoffNotificationRuleWithContext(ctx, userID, ruleID)
+		found, err := client.GetUserOncallHandoffNotificationRuleWithContext(ctx, userID, ruleID)
 		if err != nil {
 			return err
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -148,7 +147,7 @@ type resourceAddonModel struct {
 
 func requestGetAddon(ctx context.Context, client *pagerduty.Client, id string, handleErr func(error) *retry.RetryError, diags *diag.Diagnostics) resourceAddonModel {
 	var addon *pagerduty.Addon
-	err := retry.RetryContext(ctx, 5*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTimeLong, func() *retry.RetryError {
 		var err error
 		addon, err = client.GetAddonWithContext(ctx, id)
 		if err != nil {

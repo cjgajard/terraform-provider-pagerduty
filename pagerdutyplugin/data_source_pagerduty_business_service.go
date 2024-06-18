@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -47,7 +46,7 @@ func (d *dataSourceBusinessService) Read(ctx context.Context, req datasource.Rea
 	}
 
 	var found *pagerduty.BusinessService
-	err := retry.RetryContext(ctx, 5*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTimeLong, func() *retry.RetryError {
 		list, err := d.client.ListBusinessServices(pagerduty.ListBusinessServiceOptions{})
 		if err != nil {
 			if util.IsBadRequestError(err) {

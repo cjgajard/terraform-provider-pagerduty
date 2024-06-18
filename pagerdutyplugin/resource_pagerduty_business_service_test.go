@@ -117,7 +117,8 @@ func testAccCheckPagerDutyBusinessServiceExists(n string) resource.TestCheckFunc
 			return fmt.Errorf("No Business Service ID is set")
 		}
 
-		businessService, err := testAccProvider.client.GetBusinessServiceWithContext(context.Background(), rs.Primary.ID)
+		client := testAccProvider.data.client
+		businessService, err := client.GetBusinessServiceWithContext(context.Background(), rs.Primary.ID)
 		if err != nil {
 			return err
 		}
@@ -131,12 +132,13 @@ func testAccCheckPagerDutyBusinessServiceExists(n string) resource.TestCheckFunc
 }
 
 func testAccCheckPagerDutyBusinessServiceDestroy(s *terraform.State) error {
+	client := testAccProvider.data.client
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_business_service" {
 			continue
 		}
 		ctx := context.Background()
-		_, err := testAccProvider.client.GetBusinessServiceWithContext(ctx, r.Primary.ID)
+		_, err := client.GetBusinessServiceWithContext(ctx, r.Primary.ID)
 		if err == nil {
 			return fmt.Errorf("Business service still exists")
 		}

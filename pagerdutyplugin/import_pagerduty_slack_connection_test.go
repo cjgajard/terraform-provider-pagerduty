@@ -16,9 +16,9 @@ func TestAccPagerDutySlackConnection_import(t *testing.T) {
 	service := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutySlackConnectionDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutySlackConnectionDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutySlackConnectionConfig(username, email, escalationPolicy, service, workspaceID, channelID),
@@ -40,9 +40,9 @@ func TestAccPagerDutySlackConnectionTeam_import(t *testing.T) {
 	team := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
-		Providers:    testAccProviders,
-		CheckDestroy: testAccCheckPagerDutySlackConnectionDestroy,
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutySlackConnectionDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutySlackConnectionConfigTeam(team, workspaceID, channelID),

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -241,7 +240,7 @@ type requestGetExtensionServiceNowOptions struct {
 func (r *resourceExtensionServiceNow) requestGetExtensionServiceNow(ctx context.Context, opts requestGetExtensionServiceNowOptions) (resourceExtensionServiceNowModel, error) {
 	var model resourceExtensionServiceNowModel
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		extensionServiceNow, err := r.client.GetExtensionWithContext(ctx, opts.ID)
 		if err != nil {
 			if util.IsBadRequestError(err) {

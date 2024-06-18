@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -73,13 +72,12 @@ func (r *resourceBusinessService) Create(ctx context.Context, req resource.Creat
 	businessServicePlan := buildPagerdutyBusinessService(&plan)
 	log.Printf("[INFO] Creating PagerDuty business service %s", plan.Name)
 
-	err := retry.RetryContext(ctx, 5*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTimeLong, func() *retry.RetryError {
 		bs, err := r.client.CreateBusinessServiceWithContext(ctx, businessServicePlan)
 		if err != nil {
 			return retry.NonRetryableError(err)
-		} else if bs != nil {
-			businessServicePlan.ID = bs.ID
 		}
+		businessServicePlan.ID = bs.ID
 		return nil
 	})
 	if err != nil {
@@ -188,7 +186,7 @@ type resourceBusinessServiceModel struct {
 func requestGetBusinessService(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceBusinessServiceModel, bool) {
 	var model resourceBusinessServiceModel
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		businessService, err := client.GetBusinessServiceWithContext(ctx, id)
 		if err != nil {
 			if !retryNotFound && util.IsNotFoundError(err) {

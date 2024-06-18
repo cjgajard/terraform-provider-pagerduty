@@ -23,8 +23,9 @@ func init() {
 
 func testSweepExtension(_ string) error {
 	ctx := context.Background()
+	client := testAccProvider.data.client
 
-	resp, err := testAccProvider.client.ListExtensionsWithContext(ctx, pagerduty.ListExtensionOptions{})
+	resp, err := client.ListExtensionsWithContext(ctx, pagerduty.ListExtensionOptions{})
 	if err != nil {
 		return err
 	}
@@ -32,7 +33,7 @@ func testSweepExtension(_ string) error {
 	for _, extension := range resp.Extensions {
 		if strings.HasPrefix(extension.Name, "test") || strings.HasPrefix(extension.Name, "tf-") {
 			log.Printf("Destroying extension %s (%s)", extension.Name, extension.ID)
-			if err := testAccProvider.client.DeleteExtensionWithContext(ctx, extension.ID); err != nil {
+			if err := client.DeleteExtensionWithContext(ctx, extension.ID); err != nil {
 				return err
 			}
 		}
@@ -88,13 +89,15 @@ func TestAccPagerDutyExtension_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyExtensionDestroy(s *terraform.State) error {
+	client := testAccProvider.data.client
+
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_extension" {
 			continue
 		}
 
 		ctx := context.Background()
-		if _, err := testAccProvider.client.GetExtensionWithContext(ctx, r.Primary.ID); err == nil {
+		if _, err := client.GetExtensionWithContext(ctx, r.Primary.ID); err == nil {
 			return fmt.Errorf("Extension still exists")
 		}
 
@@ -104,6 +107,8 @@ func testAccCheckPagerDutyExtensionDestroy(s *terraform.State) error {
 
 func testAccCheckPagerDutyExtensionExists(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
+		client := testAccProvider.data.client
+
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
 			return fmt.Errorf("Not found: %s", n)
@@ -114,7 +119,7 @@ func testAccCheckPagerDutyExtensionExists(n string) resource.TestCheckFunc {
 		}
 
 		ctx := context.Background()
-		found, err := testAccProvider.client.GetExtensionWithContext(ctx, rs.Primary.ID)
+		found, err := client.GetExtensionWithContext(ctx, rs.Primary.ID)
 		if err != nil {
 			return err
 		}

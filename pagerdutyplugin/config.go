@@ -59,6 +59,11 @@ Please see https://www.terraform.io/docs/providers/pagerduty/index.html
 for more information on providing credentials for this provider.
 `
 
+var (
+	RetryTime     = 2 * time.Minute
+	RetryTimeLong = 5 * time.Minute
+)
+
 // Client returns a PagerDuty client, initializing when necessary.
 func (c *Config) Client(ctx context.Context) (*pagerduty.Client, error) {
 	clientOpts := []pagerduty.ClientOptions{}
@@ -128,7 +133,7 @@ func (c *Config) getClient(ctx context.Context, token string, opts []pagerduty.C
 		pagerduty.WithRetryPolicy(maxRetries, retryInterval),
 	}
 	clientOpts = append(clientOpts, opts...)
-	client := pagerduty.NewClient(c.Token, clientOpts...)
+	client := pagerduty.NewClient(token, clientOpts...)
 
 	if !c.SkipCredsValidation {
 		// Validate the credentials by calling the abilities endpoint,

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -53,7 +52,7 @@ func (d *dataSourceIntegration) Read(ctx context.Context, req datasource.ReadReq
 	}
 
 	var found *pagerduty.Service
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		list, err := d.client.ListServicesWithContext(ctx, pagerduty.ListServiceOptions{})
 		if err != nil {
 			if util.IsBadRequestError(err) {
@@ -105,7 +104,7 @@ func (d *dataSourceIntegration) Read(ctx context.Context, req datasource.ReadReq
 	}
 
 	var model dataSourceIntegrationModel
-	err = retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err = retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		details, err := d.client.GetIntegrationWithContext(ctx, found.ID, foundIntegration.ID, pagerduty.GetIntegrationOptions{})
 		if err != nil {
 			if util.IsBadRequestError(err) {

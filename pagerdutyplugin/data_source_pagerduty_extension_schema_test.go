@@ -58,6 +58,8 @@ data "pagerduty_extension_schema" "foo" {
 `
 
 func testAccCheckPagerDutyScheduleDestroy(s *terraform.State) error {
+	client := testAccProvider.data.client
+
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_schedule" {
 			continue
@@ -65,7 +67,7 @@ func testAccCheckPagerDutyScheduleDestroy(s *terraform.State) error {
 
 		ctx := context.Background()
 		opts := pagerduty.GetScheduleOptions{}
-		if _, err := testAccProvider.client.GetScheduleWithContext(ctx, r.Primary.ID, opts); err == nil {
+		if _, err := client.GetScheduleWithContext(ctx, r.Primary.ID, opts); err == nil {
 			return fmt.Errorf("Schedule still exists")
 		}
 

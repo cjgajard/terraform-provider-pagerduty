@@ -165,6 +165,8 @@ func TestAccPagerDutyTagAssignment_EP(t *testing.T) {
 }
 
 func testAccCheckPagerDutyTagAssignmentDestroy(s *terraform.State) error {
+	client := testAccProvider.data.client
+
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_tag_assignment" {
 			continue
@@ -175,7 +177,7 @@ func testAccCheckPagerDutyTagAssignmentDestroy(s *terraform.State) error {
 		entityType := "users"
 
 		opts := pagerduty.ListTagOptions{}
-		response, err := testAccProvider.client.GetTagsForEntity(entityType, entityID, opts)
+		response, err := client.GetTagsForEntity(entityType, entityID, opts)
 		if err != nil {
 			// if there are no tags for the entity that's okay
 			return nil
@@ -192,6 +194,8 @@ func testAccCheckPagerDutyTagAssignmentDestroy(s *terraform.State) error {
 
 func testAccCheckPagerDutyTagAssignmentExists(n, entityType string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
+		client := testAccProvider.data.client
+
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
 			return fmt.Errorf("Not found: %s", n)
@@ -204,7 +208,7 @@ func testAccCheckPagerDutyTagAssignmentExists(n, entityType string) resource.Tes
 		entityID, tagID := ids[0], ids[1]
 
 		opts := pagerduty.ListTagOptions{}
-		response, err := testAccProvider.client.GetTagsForEntity(entityType, entityID, opts)
+		response, err := client.GetTagsForEntity(entityType, entityID, opts)
 		if err != nil {
 			return err
 		}
@@ -291,6 +295,8 @@ resource "pagerduty_tag_assignment" "foo" {
 
 func testAccExternallyDestroyTagAssignment(n, entityType string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
+		client := testAccProvider.data.client
+
 		rs, ok := s.RootModule().Resources[n]
 		if !ok {
 			return fmt.Errorf("Not found: %s", n)
@@ -303,13 +309,13 @@ func testAccExternallyDestroyTagAssignment(n, entityType string) resource.TestCh
 
 		var err error
 		if entityType == "users" {
-			err = testAccProvider.client.DeleteUserWithContext(ctx, rs.Primary.ID)
+			err = client.DeleteUserWithContext(ctx, rs.Primary.ID)
 		}
 		if entityType == "teams" {
-			err = testAccProvider.client.DeleteTeamWithContext(ctx, rs.Primary.ID)
+			err = client.DeleteTeamWithContext(ctx, rs.Primary.ID)
 		}
 		if entityType == "escalation_policies" {
-			err = testAccProvider.client.DeleteEscalationPolicyWithContext(ctx, rs.Primary.ID)
+			err = client.DeleteEscalationPolicyWithContext(ctx, rs.Primary.ID)
 		}
 		if err != nil {
 			return err

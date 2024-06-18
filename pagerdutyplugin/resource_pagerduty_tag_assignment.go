@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -73,7 +72,7 @@ func (r *resourceTagAssignment) Create(ctx context.Context, req resource.CreateR
 		},
 	}
 
-	err := retry.RetryContext(ctx, 5*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTimeLong, func() *retry.RetryError {
 		err := r.client.AssignTagsWithContext(ctx, assign.EntityType, assign.EntityID, assignments)
 		if err != nil {
 			if util.IsBadRequestError(err) {
@@ -126,7 +125,7 @@ func (r *resourceTagAssignment) requestGetTagAssignents(ctx context.Context, mod
 	}
 
 	isFound = false
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		opts := pagerduty.ListTagOptions{}
 		response, err := r.client.GetTagsForEntity(assign.EntityType, assign.EntityID, opts)
 		if err != nil {
@@ -158,7 +157,7 @@ func (r *resourceTagAssignment) requestGetTagAssignents(ctx context.Context, mod
 func (r *resourceTagAssignment) isFoundTagAssignment(ctx context.Context, entityType, entityID string, diags *diag.Diagnostics) bool {
 	isFound := false
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		var err error
 
 		switch entityType {
@@ -216,7 +215,7 @@ func (r *resourceTagAssignment) Delete(ctx context.Context, req resource.DeleteR
 		},
 	}
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		err := r.client.AssignTagsWithContext(ctx, assign.EntityType, assign.EntityID, assignments)
 		if err != nil {
 			if util.IsBadRequestError(err) {

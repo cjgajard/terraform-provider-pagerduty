@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -51,7 +50,7 @@ func (d *dataSourceTag) Read(ctx context.Context, req datasource.ReadRequest, re
 	log.Printf("[INFO] Reading PagerDuty tag")
 
 	var tags []*pagerduty.Tag
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		list, err := d.client.ListTagsPaginated(ctx, pagerduty.ListTagOptions{Query: searchTag, Limit: 100})
 		if err != nil {
 			if util.IsBadRequestError(err) {

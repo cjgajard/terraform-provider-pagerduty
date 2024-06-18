@@ -22,8 +22,9 @@ func init() {
 
 func testSweepAddon(_ string) error {
 	ctx := context.Background()
+	client := testAccProvider.data.client
 
-	resp, err := testAccProvider.client.ListAddonsWithContext(ctx, pagerduty.ListAddonOptions{})
+	resp, err := client.ListAddonsWithContext(ctx, pagerduty.ListAddonOptions{})
 	if err != nil {
 		return err
 	}
@@ -31,7 +32,7 @@ func testSweepAddon(_ string) error {
 	for _, addon := range resp.Addons {
 		if strings.HasPrefix(addon.Name, "test") || strings.HasPrefix(addon.Name, "tf-") {
 			log.Printf("Destroying add-on %s (%s)", addon.Name, addon.ID)
-			if err := testAccProvider.client.DeleteAddonWithContext(ctx, addon.ID); err != nil {
+			if err := client.DeleteAddonWithContext(ctx, addon.ID); err != nil {
 				return err
 			}
 		}
@@ -74,6 +75,8 @@ func TestAccPagerDutyAddon_Basic(t *testing.T) {
 }
 
 func testAccCheckPagerDutyAddonDestroy(s *terraform.State) error {
+	client := testAccProvider.data.client
+
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_addon" {
 			continue
@@ -81,7 +84,7 @@ func testAccCheckPagerDutyAddonDestroy(s *terraform.State) error {
 
 		ctx := context.Background()
 
-		if _, err := testAccProvider.client.GetAddonWithContext(ctx, r.Primary.ID); err == nil {
+		if _, err := client.GetAddonWithContext(ctx, r.Primary.ID); err == nil {
 			return fmt.Errorf("Add-on still exists")
 		}
 
@@ -91,6 +94,7 @@ func testAccCheckPagerDutyAddonDestroy(s *terraform.State) error {
 
 func testAccCheckPagerDutyAddonExists(n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
+		client := testAccProvider.data.client
 		ctx := context.Background()
 
 		rs, ok := s.RootModule().Resources[n]
@@ -102,7 +106,7 @@ func testAccCheckPagerDutyAddonExists(n string) resource.TestCheckFunc {
 			return fmt.Errorf("No add-on ID is set")
 		}
 
-		found, err := testAccProvider.client.GetAddonWithContext(ctx, rs.Primary.ID)
+		found, err := client.GetAddonWithContext(ctx, rs.Primary.ID)
 		if err != nil {
 			return err
 		}

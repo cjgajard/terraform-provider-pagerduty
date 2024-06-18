@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -51,7 +50,7 @@ func (d *dataSourceExtensionSchema) Read(ctx context.Context, req datasource.Rea
 	offset := 0
 	more := true
 	for more {
-		err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 			o := pagerduty.ListExtensionSchemaOptions{Limit: 20, Offset: uint(offset), Total: true}
 			list, err := d.client.ListExtensionSchemasWithContext(ctx, o)
 			if err != nil {

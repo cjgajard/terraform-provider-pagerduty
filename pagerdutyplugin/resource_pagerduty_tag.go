@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -58,7 +57,7 @@ func (r *resourceTag) Create(ctx context.Context, req resource.CreateRequest, re
 	tagBody := buildTag(&model)
 	log.Printf("[INFO] Creating PagerDuty tag %s", tagBody.Label)
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		tag, err := r.client.CreateTagWithContext(ctx, tagBody)
 		if err != nil {
 			var apiErr pagerduty.APIError
@@ -84,7 +83,7 @@ func (r *resourceTag) Read(ctx context.Context, req resource.ReadRequest, resp *
 	log.Printf("[INFO] Reading PagerDuty tag %s", tagID)
 
 	var model resourceTagModel
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		tag, err := r.client.GetTagWithContext(ctx, tagID.ValueString())
 		if err != nil {
 			if util.IsBadRequestError(err) {
@@ -116,7 +115,7 @@ func (r *resourceTag) Delete(ctx context.Context, req resource.DeleteRequest, re
 	}
 	log.Printf("[INFO] Removing PagerDuty tag %s", model.ID)
 
-	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+	err := retry.RetryContext(ctx, RetryTime, func() *retry.RetryError {
 		err := r.client.DeleteTagWithContext(ctx, model.ID.ValueString())
 		if err != nil {
 			if util.IsBadRequestError(err) {

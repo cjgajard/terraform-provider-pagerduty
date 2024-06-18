@@ -211,3 +211,4 @@ PAGERDUTY_ACC_SCHEDULE_USED_BY_EP_W_1_LAYER=1 make testacc TESTARGS="-run PagerD
 | `PAGERDUTY_ACC_LICENSE_NAME`                                 | Licenses            |
 | `PAGERDUTY_ACC_SCHEDULE_USED_BY_EP_W_1_LAYER`                | Schedule            |
 | `PAGERDUTY_ACC_EXTERNAL_PROVIDER_VERSION`                    | Modifies the version used to compare plans between sdkv2 and framework implementations. Default `~> 3.6`. |
+| `PAGERDUTY_ACC_TIMEOUT_SECONDS`                              | Modifies the timeout used for integration calls |

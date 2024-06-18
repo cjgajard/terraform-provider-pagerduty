@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
@@ -115,7 +114,7 @@ func (r *resourceUserHandoffNotificationRule) Create(ctx context.Context, req re
 	}
 	log.Printf("[INFO] Creating PagerDuty User Handoff Notification Rule %s", plan.ID)
 
-	retryErr := helperResource.RetryContext(ctx, 2*time.Minute, func() *helperResource.RetryError {
+	retryErr := helperResource.RetryContext(ctx, RetryTime, func() *helperResource.RetryError {
 		rule, err := r.client.CreateUserOncallHandoffNotificationRuleWithContext(ctx, plan.UserID.ValueString(), *userHandoffNotificationRule)
 		if util.IsNotFoundError(err) {
 			return helperResource.RetryableError(err)
@@ -291,7 +290,7 @@ var resourceContactMethodObjectType = types.ObjectType{
 func requestGetUserHandoffNotificationRule(ctx context.Context, client *pagerduty.Client, userID, ruleID string, diags *diag.Diagnostics) resourceUserHandoffNotificationRuleModel {
 	var userHandoffNotificationRule *pagerduty.OncallHandoffNotificationRule
 
-	retryErr := helperResource.RetryContext(ctx, 2*time.Minute, func() *helperResource.RetryError {
+	retryErr := helperResource.RetryContext(ctx, RetryTime, func() *helperResource.RetryError {
 		var err error
 		userHandoffNotificationRule, err = client.GetUserOncallHandoffNotificationRuleWithContext(ctx, userID, ruleID)
 		if util.IsBadRequestError(err) || util.IsNotFoundError(err) {
