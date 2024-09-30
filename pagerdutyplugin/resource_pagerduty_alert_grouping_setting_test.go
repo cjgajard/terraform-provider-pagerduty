@@ -73,7 +73,7 @@ func TestAccPagerDutyAlertGroupingSetting_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "name", name),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "description"),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "type", configType),
-					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.time", fmt.Sprint(config.TimeWindow)),
+					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.time_window", fmt.Sprint(config.TimeWindow)),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.aggregate", config.Aggregate),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.fields.0", config.Fields[0]),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "services.0"),
@@ -86,7 +86,7 @@ func TestAccPagerDutyAlertGroupingSetting_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "name", nameUpdated),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "description"),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "type", configTypeUpdated),
-					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.time", fmt.Sprint(configUpdated.Timeout)),
+					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.timeout", fmt.Sprint(configUpdated.Timeout)),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "services.0"),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "services.1"),
 				),
@@ -120,7 +120,7 @@ func TestAccPagerDutyAlertGroupingSetting_ContentBased_WithTimeWindow(t *testing
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "name", name),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "description"),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "type", configType),
-					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.time", fmt.Sprint(config.TimeWindow)),
+					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.time_window", fmt.Sprint(config.TimeWindow)),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.aggregate", config.Aggregate),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.fields.0", config.Fields[0]),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "services.0"),
@@ -151,7 +151,7 @@ func TestAccPagerDutyAlertGroupingSetting_Time_WithTimeoutZero(t *testing.T) {
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "name", name),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "description"),
 					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "type", configType),
-					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.time", fmt.Sprint(config.Timeout)),
+					resource.TestCheckResourceAttr("pagerduty_alert_grouping_setting."+ref, "config.timeout", fmt.Sprint(config.Timeout)),
 					resource.TestCheckResourceAttrSet("pagerduty_alert_grouping_setting."+ref, "services.0"),
 				),
 			},
@@ -205,13 +205,17 @@ func helperConfigPagerDutyAlertGroupingSettingConfig(config interface{}) string 
 	switch c := config.(type) {
 	case pagerduty.AlertGroupingSettingConfigContentBased:
 		return fmt.Sprintf(`{
-			time = "%d"
+			time_window = "%d"
 			aggregate = "%s"
 			fields = ["%s"]
 		}`, c.TimeWindow, c.Aggregate, strings.Join(c.Fields, `","`))
+	case pagerduty.AlertGroupingSettingConfigIntelligent:
+		return fmt.Sprintf(`{
+			time_window = "%d"
+		}`, c.TimeWindow)
 	case pagerduty.AlertGroupingSettingConfigTime:
 		return fmt.Sprintf(`{
-			time = "%d"
+			timeout = "%d"
 		}`, c.Timeout)
 	}
 	return "{}"
@@ -239,8 +243,7 @@ resource "pagerduty_service" "%s" {
 	s += fmt.Sprintf(`
 resource "pagerduty_alert_grouping_setting" "%s" {
   name = "%s"
-  type = "%s"
-  config = %s
+  config_%s = %s
   services = [%s]
   depends_on = [%s]
 }`, name, name, cfgType, config, strings.Join(serviceIDs, `,`), strings.Join(services, `,`))

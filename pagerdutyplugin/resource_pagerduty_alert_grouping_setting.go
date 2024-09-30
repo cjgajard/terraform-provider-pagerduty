@@ -8,6 +8,7 @@ import (
 
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
+	"github.com/hashicorp/terraform-plugin-framework-validators/objectvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -43,6 +44,7 @@ func (r *resourceAlertGroupingSetting) Schema(_ context.Context, _ resource.Sche
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+
 			"name": schema.StringAttribute{
 				Required: true,
 			},
@@ -52,7 +54,7 @@ func (r *resourceAlertGroupingSetting) Schema(_ context.Context, _ resource.Sche
 				Default:  stringdefault.StaticString("Managed by Terraform"),
 			},
 			"type": schema.StringAttribute{
-				Required: true,
+				Computed: true,
 				Validators: []validator.String{
 					stringvalidator.OneOf(
 						"content_based",
@@ -62,17 +64,69 @@ func (r *resourceAlertGroupingSetting) Schema(_ context.Context, _ resource.Sche
 					),
 				},
 			},
-			"config": schema.ObjectAttribute{
-				AttributeTypes: map[string]attr.Type{
-					"time":      types.Int64Type,
-					"aggregate": types.StringType,
-					"fields":    types.ListType{ElemType: types.StringType},
-				},
-				Required: true,
-			},
 			"services": schema.ListAttribute{
 				ElementType: types.StringType,
 				Optional:    true,
+			},
+
+			"config_content_based": schema.ObjectAttribute{
+				AttributeTypes: map[string]attr.Type{
+					"time_window": types.Int64Type,
+					"aggregate":   types.StringType,
+					"fields":      types.ListType{ElemType: types.StringType},
+				},
+				Optional: true,
+				Validators: []validator.Object{
+					objectvalidator.ConflictsWith(
+						path.MatchRelative().AtParent().AtName("config_content_based_intelligent"),
+						path.MatchRelative().AtParent().AtName("config_intelligent"),
+						path.MatchRelative().AtParent().AtName("config_time"),
+					),
+				},
+			},
+
+			"config_content_based_intelligent": schema.ObjectAttribute{
+				AttributeTypes: map[string]attr.Type{
+					"time_window": types.Int64Type,
+					"aggregate":   types.StringType,
+					"fields":      types.ListType{ElemType: types.StringType},
+				},
+				Optional: true,
+				Validators: []validator.Object{
+					objectvalidator.ConflictsWith(
+						path.MatchRelative().AtParent().AtName("config_content_based"),
+						path.MatchRelative().AtParent().AtName("config_intelligent"),
+						path.MatchRelative().AtParent().AtName("config_time"),
+					),
+				},
+			},
+
+			"config_intelligent": schema.ObjectAttribute{
+				AttributeTypes: map[string]attr.Type{
+					"time_window": types.Int64Type,
+				},
+				Optional: true,
+				Validators: []validator.Object{
+					objectvalidator.ConflictsWith(
+						path.MatchRelative().AtParent().AtName("config_content_based"),
+						path.MatchRelative().AtParent().AtName("config_content_based_intelligent"),
+						path.MatchRelative().AtParent().AtName("config_time"),
+					),
+				},
+			},
+
+			"config_time": schema.ObjectAttribute{
+				AttributeTypes: map[string]attr.Type{
+					"timeout": types.Int64Type,
+				},
+				Optional: true,
+				Validators: []validator.Object{
+					objectvalidator.ConflictsWith(
+						path.MatchRelative().AtParent().AtName("config_content_based"),
+						path.MatchRelative().AtParent().AtName("config_content_based_intelligent"),
+						path.MatchRelative().AtParent().AtName("config_intelligent"),
+					),
+				},
 			},
 		},
 	}
@@ -91,9 +145,6 @@ func (r *resourceAlertGroupingSetting) Create(ctx context.Context, req resource.
 	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
 		response, err := r.client.CreateAlertGroupingSetting(ctx, plan)
 		if err != nil {
-			if util.IsBadRequestError(err) {
-				return retry.NonRetryableError(err)
-			}
 			return retry.RetryableError(err)
 		}
 		plan.ID = response.ID
@@ -200,12 +251,15 @@ func (r *resourceAlertGroupingSetting) ImportState(ctx context.Context, req reso
 }
 
 type resourceAlertGroupingSettingModel struct {
-	ID          types.String `tfsdk:"id"`
-	Name        types.String `tfsdk:"name"`
-	Description types.String `tfsdk:"description"`
-	Type        types.String `tfsdk:"type"`
-	Config      types.Object `tfsdk:"config"`
-	Services    types.List   `tfsdk:"services"`
+	ID                 types.String `tfsdk:"id"`
+	Name               types.String `tfsdk:"name"`
+	Description        types.String `tfsdk:"description"`
+	Type               types.String `tfsdk:"type"`
+	ConfigContentBased types.Object `tfsdk:"config_content_based"`
+	ConfigCBI          types.Object `tfsdk:"config_content_based_intelligent"`
+	ConfigIntelligent  types.Object `tfsdk:"config_intelligent"`
+	ConfigTime         types.Object `tfsdk:"config_time"`
+	Services           types.List   `tfsdk:"services"`
 }
 
 func requestGetAlertGroupingSetting(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool, diags *diag.Diagnostics) (resourceAlertGroupingSettingModel, error) {
@@ -230,57 +284,104 @@ func requestGetAlertGroupingSetting(ctx context.Context, client *pagerduty.Clien
 }
 
 func buildPagerdutyAlertGroupingSetting(ctx context.Context, model *resourceAlertGroupingSettingModel, diags *diag.Diagnostics) pagerduty.AlertGroupingSetting {
+	configType := buildPagerdutyAlertGroupingSettingType(model)
 	alertGroupingSetting := pagerduty.AlertGroupingSetting{
 		ID:          model.ID.ValueString(),
 		Name:        model.Name.ValueString(),
 		Description: model.Description.ValueString(),
-		Type:        pagerduty.AlertGroupingSettingType(model.Type.ValueString()),
-		Config:      buildPagerdutyAlertGroupingSettingConfig(ctx, model, diags),
+		Type:        configType,
+		Config:      buildPagerdutyAlertGroupingSettingConfig(ctx, model, configType, diags),
 		Services:    buildPagerdutyAlertGroupingSettingServices(model),
 	}
 	return alertGroupingSetting
 }
 
-func buildPagerdutyAlertGroupingSettingConfig(ctx context.Context, model *resourceAlertGroupingSettingModel, diags *diag.Diagnostics) interface{} {
-	var target struct {
-		Time      types.Int64  `tfsdk:"time"`
-		Aggregate types.String `tfsdk:"aggregate"`
-		Fields    types.List   `tfsdk:"fields"`
+func buildPagerdutyAlertGroupingSettingType(model *resourceAlertGroupingSettingModel) pagerduty.AlertGroupingSettingType {
+	if !model.ConfigTime.IsNull() && !model.ConfigTime.IsUnknown() {
+		return pagerduty.AlertGroupingSettingTimeType
 	}
+	if !model.ConfigIntelligent.IsNull() && !model.ConfigIntelligent.IsUnknown() {
+		return pagerduty.AlertGroupingSettingIntelligentType
+	}
+	if !model.ConfigCBI.IsNull() && !model.ConfigCBI.IsUnknown() {
+		return pagerduty.AlertGroupingSettingContentBasedIntelligentType
+	}
+	if !model.ConfigContentBased.IsNull() && !model.ConfigContentBased.IsUnknown() {
+		return pagerduty.AlertGroupingSettingContentBasedType
+	}
+	return pagerduty.AlertGroupingSettingContentBasedType // unreachable
+}
 
-	switch model.Type.ValueString() {
-	case string(pagerduty.AlertGroupingSettingContentBasedType), string(pagerduty.AlertGroupingSettingContentBasedIntelligentType):
-		diags.Append(model.Config.As(ctx, &target, basetypes.ObjectAsOptions{})...)
+func buildPagerdutyAlertGroupingSettingConfig(
+	ctx context.Context,
+	model *resourceAlertGroupingSettingModel,
+	configType pagerduty.AlertGroupingSettingType,
+	diags *diag.Diagnostics,
+) interface{} {
+
+	switch configType {
+	case pagerduty.AlertGroupingSettingContentBasedType:
+		var target struct {
+			TimeWindow types.Int64  `tfsdk:"time_window"`
+			Aggregate  types.String `tfsdk:"aggregate"`
+			Fields     types.List   `tfsdk:"fields"`
+		}
+		diags.Append(model.ConfigContentBased.As(ctx, &target, basetypes.ObjectAsOptions{UnhandledNullAsEmpty: true})...)
+		if diags.HasError() {
+			log.Printf("[CG] %+v", diags)
+			panic("ups")
+		}
 		fields := []string{}
 		diags.Append(target.Fields.ElementsAs(ctx, &fields, false)...)
 		return pagerduty.AlertGroupingSettingConfigContentBased{
-			TimeWindow: uint(target.Time.ValueInt64()),
+			TimeWindow: uint(target.TimeWindow.ValueInt64()),
 			Aggregate:  target.Aggregate.ValueString(),
 			Fields:     fields,
 		}
 
-	case string(pagerduty.AlertGroupingSettingIntelligentType):
-		diags.Append(model.Config.As(ctx, &target, basetypes.ObjectAsOptions{})...)
-		return pagerduty.AlertGroupingSettingConfigIntelligent{
-			TimeWindow: uint(target.Time.ValueInt64()),
+	case pagerduty.AlertGroupingSettingContentBasedIntelligentType:
+		var target struct {
+			TimeWindow types.Int64  `tfsdk:"time_window"`
+			Aggregate  types.String `tfsdk:"aggregate"`
+			Fields     types.List   `tfsdk:"fields"`
+		}
+		diags.Append(model.ConfigCBI.As(ctx, &target, basetypes.ObjectAsOptions{UnhandledNullAsEmpty: true})...)
+		fields := []string{}
+		diags.Append(target.Fields.ElementsAs(ctx, &fields, false)...)
+		return pagerduty.AlertGroupingSettingConfigContentBased{
+			TimeWindow: uint(target.TimeWindow.ValueInt64()),
+			Aggregate:  target.Aggregate.ValueString(),
+			Fields:     fields,
 		}
 
-	case string(pagerduty.AlertGroupingSettingTimeType):
-		diags.Append(model.Config.As(ctx, &target, basetypes.ObjectAsOptions{})...)
+	case pagerduty.AlertGroupingSettingIntelligentType:
+		var target struct {
+			TimeWindow types.Int64 `tfsdk:"time_window"`
+		}
+		diags.Append(model.ConfigIntelligent.As(ctx, &target, basetypes.ObjectAsOptions{})...)
+		return pagerduty.AlertGroupingSettingConfigIntelligent{
+			TimeWindow: uint(target.TimeWindow.ValueInt64()),
+		}
+
+	case pagerduty.AlertGroupingSettingTimeType:
+		var target struct {
+			Timeout types.Int64 `tfsdk:"timeout"`
+		}
+		diags.Append(model.ConfigTime.As(ctx, &target, basetypes.ObjectAsOptions{})...)
 		return pagerduty.AlertGroupingSettingConfigTime{
-			Timeout: uint(target.Time.ValueInt64()),
+			Timeout: uint(target.Timeout.ValueInt64()),
 		}
 	}
 
 	return nil
 }
 
-func buildPagerdutyAlertGroupingSettingServices(model *resourceAlertGroupingSettingModel) []pagerduty.APIReference {
+func buildPagerdutyAlertGroupingSettingServices(model *resourceAlertGroupingSettingModel) []pagerduty.AlertGroupingSettingService {
 	elements := model.Services.Elements()
-	list := make([]pagerduty.APIReference, 0, len(elements))
+	list := make([]pagerduty.AlertGroupingSettingService, 0, len(elements))
 	for _, e := range elements {
 		v, _ := e.(types.String)
-		list = append(list, pagerduty.APIReference{
+		list = append(list, pagerduty.AlertGroupingSettingService{
 			ID: v.ValueString(),
 		})
 	}
@@ -289,57 +390,73 @@ func buildPagerdutyAlertGroupingSettingServices(model *resourceAlertGroupingSett
 
 func flattenAlertGroupingSetting(response *pagerduty.AlertGroupingSetting) resourceAlertGroupingSettingModel {
 	model := resourceAlertGroupingSettingModel{
-		ID:          types.StringValue(response.ID),
-		Name:        types.StringValue(response.Name),
-		Description: types.StringValue(response.Description),
-		Type:        types.StringValue(string(response.Type)),
-		Config:      flattenAlertGroupingSettingConfig(response),
-		Services:    flattenAlertGroupingSettingServices(response),
+		ID:                 types.StringValue(response.ID),
+		Name:               types.StringValue(response.Name),
+		Description:        types.StringValue(response.Description),
+		Type:               types.StringValue(string(response.Type)),
+		ConfigContentBased: flattenAlertGroupingSettingConfigContentBased(response),
+		ConfigCBI:          flattenAlertGroupingSettingConfigContentBasedIntelligent(response),
+		ConfigIntelligent:  flattenAlertGroupingSettingConfigIntelligent(response),
+		ConfigTime:         flattenAlertGroupingSettingConfigTime(response),
+		Services:           flattenAlertGroupingSettingServices(response),
 	}
 	return model
 }
 
-func flattenAlertGroupingSettingConfig(response *pagerduty.AlertGroupingSetting) types.Object {
+func flattenAlertGroupingSettingConfigContentBased(response *pagerduty.AlertGroupingSetting) types.Object {
 	var alertGroupingSettingConfigAttrTypes = map[string]attr.Type{
-		"time":      types.Int64Type,
-		"aggregate": types.StringType,
-		"fields":    types.ListType{ElemType: types.StringType},
+		"time_window": types.Int64Type,
+		"aggregate":   types.StringType,
+		"fields":      types.ListType{ElemType: types.StringType},
 	}
 
-	var obj map[string]attr.Value
-
-	switch c := response.Config.(type) {
-	case pagerduty.AlertGroupingSettingConfigContentBased:
-		fields := make([]attr.Value, 0, len(c.Fields))
-		for _, f := range c.Fields {
-			fields = append(fields, types.StringValue(f))
-		}
-		timeWindow := types.Int64Value(0)
-		// If we receive a recommended time window it means the
-		// configuration was set up with a 0
-		if c.RecommendedTimeWindow == nil {
-			timeWindow = types.Int64Value(int64(c.TimeWindow))
-		}
-		obj = map[string]attr.Value{
-			"time":      timeWindow,
-			"aggregate": types.StringValue(c.Aggregate),
-			"fields":    types.ListValueMust(types.StringType, fields),
-		}
-
-	case pagerduty.AlertGroupingSettingConfigIntelligent:
-		timeWindow := types.Int64Value(0)
-		// If we receive a recommended time window it means the
-		// configuration was set up with a 0
-		if c.RecommendedTimeWindow == nil {
-			timeWindow = types.Int64Value(int64(c.TimeWindow))
-		}
-		obj = map[string]attr.Value{"time": timeWindow}
-
-	case pagerduty.AlertGroupingSettingConfigTime:
-		obj = map[string]attr.Value{"time": types.Int64Value(int64(c.Timeout))}
+	c, ok := response.Config.(pagerduty.AlertGroupingSettingConfigContentBased)
+	if !ok || response.Type != "content_based" {
+		return types.ObjectNull(alertGroupingSettingConfigAttrTypes)
 	}
 
-	return types.ObjectValueMust(alertGroupingSettingConfigAttrTypes, obj)
+	fields := make([]attr.Value, 0, len(c.Fields))
+	for _, f := range c.Fields {
+		fields = append(fields, types.StringValue(f))
+	}
+
+	timeWindow := types.Int64Value(int64(c.TimeWindow))
+	// Use configuration's value if the API response is different
+	// from it to prevent an inconsistency check error.
+
+	return types.ObjectValueMust(alertGroupingSettingConfigAttrTypes, map[string]attr.Value{
+		"time_window": timeWindow,
+		"aggregate":   types.StringValue(c.Aggregate),
+		"fields":      types.ListValueMust(types.StringType, fields),
+	})
+}
+
+func flattenAlertGroupingSettingConfigContentBasedIntelligent(response *pagerduty.AlertGroupingSetting) types.Object {
+	var alertGroupingSettingConfigAttrTypes = map[string]attr.Type{
+		"time_window": types.Int64Type,
+		"aggregate":   types.StringType,
+		"fields":      types.ListType{ElemType: types.StringType},
+	}
+	// TODO
+	return types.ObjectNull(alertGroupingSettingConfigAttrTypes)
+}
+
+func flattenAlertGroupingSettingConfigIntelligent(response *pagerduty.AlertGroupingSetting) types.Object {
+	var alertGroupingSettingConfigAttrTypes = map[string]attr.Type{"time_window": types.Int64Type}
+	c, ok := response.Config.(pagerduty.AlertGroupingSettingConfigIntelligent)
+	if !ok || response.Type != "intelligent" {
+		return types.ObjectNull(alertGroupingSettingConfigAttrTypes)
+	}
+	return types.ObjectValueMust(alertGroupingSettingConfigAttrTypes, map[string]attr.Value{"time_window": types.Int64Value(int64(c.TimeWindow))})
+}
+
+func flattenAlertGroupingSettingConfigTime(response *pagerduty.AlertGroupingSetting) types.Object {
+	var alertGroupingSettingConfigAttrTypes = map[string]attr.Type{"timeout": types.Int64Type}
+	c, ok := response.Config.(pagerduty.AlertGroupingSettingConfigTime)
+	if !ok || response.Type != "intelligent" {
+		return types.ObjectNull(alertGroupingSettingConfigAttrTypes)
+	}
+	return types.ObjectValueMust(alertGroupingSettingConfigAttrTypes, map[string]attr.Value{"timeout": types.Int64Value(int64(c.Timeout))})
 }
 
 func flattenAlertGroupingSettingServices(response *pagerduty.AlertGroupingSetting) types.List {
