@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -264,35 +265,38 @@ func TestAccPagerDutyEscalationPolicyWithTeams_Basic(t *testing.T) {
 	})
 }
 
-func testAccCheckPagerDutyEscalationPolicyWithRoundRoundAssignmentStrategyConfig(name, email, escalationPolicy, strategy string) string {
-	return fmt.Sprintf(`
-resource "pagerduty_user" "foo" {
-  name        = "%s"
-  email       = "%s"
-  color       = "green"
-  role        = "user"
-  job_title   = "foo"
-  description = "foo"
-}
+func TestAccPagerDutyEscalationPolicy_PlanConsistencyTargets(t *testing.T) {
+	user := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	escalationPolicy := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	schedule := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
-resource "pagerduty_escalation_policy" "foo" {
-  name        = "%s"
-  description = "foo"
-  num_loops   = 1
-
-  rule {
-    escalation_delay_in_minutes = 10
-    escalation_rule_assignment_strategy {
-      type = "%s"
-    }
-
-    target {
-      type = "user_reference"
-      id   = pagerduty_user.foo.id
-    }
-  }
-}
-`, name, email, escalationPolicy, strategy)
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPagerDutyEscalationPolicyDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccCheckPagerDutyEscalationPolicyPlanConsistencyRulesConfig(user),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyUserExists("pagerduty_user.foo"),
+					resource.TestCheckResourceAttr("pagerduty_user.foo", "name", user),
+				),
+			},
+			{
+				Config: testAccCheckPagerDutyEscalationPolicyPlanConsistencyRulesConfigUpdated(user, schedule, escalationPolicy),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEscalationPolicyExists("pagerduty_escalation_policy.foo"),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "name", escalationPolicy),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "description", "foo"),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "num_loops", "0"),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "rule.#", "1"),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "rule.0.escalation_delay_in_minutes", "10"),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "rule.0.target.0.type", "user_reference"),
+					resource.TestCheckResourceAttr("pagerduty_escalation_policy.foo", "rule.0.target.1.type", "schedule_reference"),
+				),
+			},
+		},
+	})
 }
 
 func testAccCheckPagerDutyEscalationPolicyDestroy(s *terraform.State) error {
@@ -419,6 +423,37 @@ resource "pagerduty_escalation_policy" "foo" {
 `, name, email, escalationPolicy)
 }
 
+func testAccCheckPagerDutyEscalationPolicyWithRoundRoundAssignmentStrategyConfig(name, email, escalationPolicy, strategy string) string {
+	return fmt.Sprintf(`
+resource "pagerduty_user" "foo" {
+  name        = "%s"
+  email       = "%s"
+  color       = "green"
+  role        = "user"
+  job_title   = "foo"
+  description = "foo"
+}
+
+resource "pagerduty_escalation_policy" "foo" {
+  name        = "%s"
+  description = "foo"
+  num_loops   = 1
+
+  rule {
+    escalation_delay_in_minutes = 10
+    escalation_rule_assignment_strategy {
+      type = "%s"
+    }
+
+    target {
+      type = "user_reference"
+      id   = pagerduty_user.foo.id
+    }
+  }
+}
+`, name, email, escalationPolicy, strategy)
+}
+
 func testAccCheckPagerDutyEscalationPolicyWithTeamsConfig(name, email, team, escalationPolicy string) string {
 	return fmt.Sprintf(`
 resource "pagerduty_user" "foo" {
@@ -493,4 +528,61 @@ resource "pagerduty_escalation_policy" "foo" {
   }
 }
 `, name, email, team, escalationPolicy)
+}
+
+func testAccCheckPagerDutyEscalationPolicyPlanConsistencyRulesConfig(user string) string {
+	return fmt.Sprintf(`
+resource "pagerduty_user" "foo" {
+  name        = "%s"
+  email       = "%[1]s@foo.test"
+  color       = "green"
+  role        = "user"
+  job_title   = "foo"
+  description = "foo"
+}
+`, user)
+}
+
+func testAccCheckPagerDutyEscalationPolicyPlanConsistencyRulesConfigUpdated(user, schedule, escalationPolicy string) string {
+	t := time.Now().Add(time.Minute).Round(time.Minute).Format(time.RFC3339)
+
+	return fmt.Sprintf(`
+resource "pagerduty_user" "foo" {
+  name        = "%s"
+  email       = "%[1]s@foo.test"
+  color       = "green"
+  role        = "user"
+  job_title   = "foo"
+  description = "foo"
+}
+
+resource "pagerduty_schedule" "bar" {
+  name        = "%s"
+  time_zone   = "America/New_York"
+  layer {
+    start = "%s"
+    rotation_virtual_start = "%[3]s"
+    rotation_turn_length_seconds = 21600
+    users = [pagerduty_user.foo.id]
+  }
+}
+
+resource "pagerduty_escalation_policy" "foo" {
+  name        = "%s"
+  description = "foo"
+  num_loops   = 0
+  rule {
+    escalation_delay_in_minutes = 10
+
+    target {
+      type = "user_reference"
+      id   = pagerduty_user.foo.id
+    }
+
+    target {
+      type = "schedule_reference"
+      id   = pagerduty_schedule.bar.id
+    }
+  }
+}`, user, schedule, t, escalationPolicy)
 }

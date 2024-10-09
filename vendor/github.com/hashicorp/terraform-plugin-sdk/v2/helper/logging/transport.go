@@ -18,7 +18,7 @@ type transport struct {
 }
 
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if IsDebugOrHigher() {
+	if IsDebugOrHigher() && req.URL.Path != "/abilities" {
 		reqData, err := httputil.DumpRequestOut(req, true)
 		if err == nil {
 			log.Printf("[DEBUG] "+logReqMsg, t.name, prettyPrintJsonLines(reqData))
@@ -32,7 +32,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return resp, err
 	}
 
-	if IsDebugOrHigher() {
+	if IsDebugOrHigher() && req.URL.Path != "/abilities" {
 		respData, err := httputil.DumpResponse(resp, true)
 		if err == nil {
 			log.Printf("[DEBUG] "+logRespMsg, t.name, prettyPrintJsonLines(respData))
