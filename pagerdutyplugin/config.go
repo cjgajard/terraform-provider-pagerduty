@@ -2,7 +2,6 @@ package pagerduty
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	"github.com/PagerDuty/go-pagerduty"
 	"github.com/PagerDuty/terraform-provider-pagerduty/util"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/logging"
 )
 
 // Config defines the configuration options for the PagerDuty client
@@ -78,11 +76,11 @@ func (c *Config) Client(ctx context.Context) (*pagerduty.Client, error) {
 	httpClient := http.DefaultClient
 	httpClient.Timeout = 30 * time.Second
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if c.InsecureTls {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-	httpClient.Transport = logging.NewTransport("PagerDuty", transport)
+	// transport := http.DefaultTransport.(*http.Transport).Clone()
+	// if c.InsecureTls {
+	// 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	// }
+	// httpClient.Transport = logging.NewTransport("PagerDuty", transport)
 
 	apiURL := c.APIURL
 	if c.APIURLOverride != "" {

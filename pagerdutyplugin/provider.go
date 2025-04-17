@@ -58,6 +58,7 @@ func (p *Provider) DataSources(_ context.Context) [](func() datasource.DataSourc
 		func() datasource.DataSource { return &dataSourceExtensionSchema{} },
 		func() datasource.DataSource { return &dataSourceIncidentTypeCustomField{} },
 		func() datasource.DataSource { return &dataSourceIncidentType{} },
+		func() datasource.DataSource { return &dataSourceIncidentWorkflowAction{} },
 		func() datasource.DataSource { return &dataSourceIntegration{} },
 		func() datasource.DataSource { return &dataSourceJiraCloudAccountMapping{} },
 		func() datasource.DataSource { return &dataSourceLicenses{} },
