@@ -26,14 +26,21 @@ func (d *dataSourceService) Metadata(ctx context.Context, req datasource.Metadat
 func (d *dataSourceService) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"id":                      schema.StringAttribute{Computed: true},
-			"name":                    schema.StringAttribute{Required: true},
-			"auto_resolve_timeout":    schema.Int64Attribute{Computed: true},
+			"id":   schema.StringAttribute{Computed: true},
+			"name": schema.StringAttribute{Required: true},
+
 			"acknowledgement_timeout": schema.Int64Attribute{Computed: true},
 			"alert_creation":          schema.StringAttribute{Computed: true},
+			"auto_resolve_timeout":    schema.Int64Attribute{Computed: true},
 			"description":             schema.StringAttribute{Computed: true},
 			"escalation_policy":       schema.StringAttribute{Computed: true},
+			"html_url":                schema.StringAttribute{Computed: true},
+			"last_incident_timestamp": schema.StringAttribute{Computed: true},
+			"self":                    schema.StringAttribute{Computed: true},
+			"status":                  schema.StringAttribute{Computed: true},
+			"summary":                 schema.StringAttribute{Computed: true},
 			"type":                    schema.StringAttribute{Computed: true},
+
 			"teams": schema.ListAttribute{
 				Computed:    true,
 				Description: "The set of teams associated with the service",
@@ -44,6 +51,24 @@ func (d *dataSourceService) Schema(ctx context.Context, req datasource.SchemaReq
 					},
 				},
 			},
+
+			"incident_urgency_rule": schema.ObjectAttribute{
+				Computed: true,
+			},
+			/*
+				"support_hours": schema.ObjectAttribute{
+					Computed: true,
+				},
+				"auto_pause_notifications_parameters": schema.ObjectAttribute{
+					Computed: true,
+				},
+				"scheduled_actions": schema.ListAttribute{
+					Computed: true,
+				},
+				"addons": schema.ListAttribute{
+					Computed: true,
+				},
+			*/
 		},
 	}
 }
@@ -115,6 +140,12 @@ type dataSourceServiceModel struct {
 	EscalationPolicy       types.String `tfsdk:"escalation_policy"`
 	Type                   types.String `tfsdk:"type"`
 	Teams                  types.List   `tfsdk:"teams"`
+
+	Summary               types.String `tfsdk:"summary"`
+	Self                  types.String `tfsdk:"self"`
+	HTMLURL               types.String `tfsdk:"html_url"`
+	Status                types.String `tfsdk:"status"`
+	LastIncidentTimestamp types.String `tfsdk:"last_incident_timestamp"`
 }
 
 func flattenServiceData(service *pagerduty.Service, diags *diag.Diagnostics) dataSourceServiceModel {
@@ -149,6 +180,14 @@ func flattenServiceData(service *pagerduty.Service, diags *diag.Diagnostics) dat
 		Description:            types.StringValue(service.Description),
 		EscalationPolicy:       types.StringValue(service.EscalationPolicy.ID),
 		Teams:                  teams,
+
+		Summary:               types.StringValue(service.Summary),
+		Self:                  types.StringValue(service.Self),
+		HTMLURL:               types.StringValue(service.HTMLURL),
+		Status:                types.StringValue(service.Status),
+		LastIncidentTimestamp: types.StringValue(service.LastIncidentTimestamp),
+
+		// IncidentUrgencyRule: types.ObjectNull(),
 	}
 
 	if service.AutoResolveTimeout != nil {
