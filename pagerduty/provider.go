@@ -186,6 +186,10 @@ func isErrCode(err error, code int) bool {
 	return false
 }
 
+func isAuthError(err error) bool {
+	return isErrCode(err, 401) || isErrCode(err, 403)
+}
+
 func isMalformedNotFoundError(err error) bool {
 	// There are some errors that doesn't stick to expected error interface and
 	// fallback to a simple text error message that can be capture by this regexp.

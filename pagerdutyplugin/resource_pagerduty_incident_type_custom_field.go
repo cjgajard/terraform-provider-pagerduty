@@ -329,7 +329,17 @@ func (r *resourceIncidentTypeCustomField) Update(ctx context.Context, req resour
 		db[opt.Data.Value] = opt.ID
 	}
 
-	if _, err := r.client.UpdateIncidentTypeField(ctx, incidentTypeID, fieldID, plan); err != nil {
+	err = retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		_, err := r.client.UpdateIncidentTypeField(ctx, incidentTypeID, fieldID, plan)
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
+	if err != nil {
 		if util.IsNotFoundError(err) {
 			resp.State.RemoveResource(ctx)
 			return
@@ -342,11 +352,20 @@ func (r *resourceIncidentTypeCustomField) Update(ctx context.Context, req resour
 	}
 
 	for _, opt := range additions {
-		_, err := r.client.CreateIncidentTypeFieldOption(ctx, incidentTypeID, fieldID, pagerduty.CreateIncidentTypeFieldOptionPayload{
-			Data: &pagerduty.IncidentTypeFieldOptionData{
-				Value:    opt,
-				DataType: field.DataType,
-			},
+		err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+			_, err := r.client.CreateIncidentTypeFieldOption(ctx, incidentTypeID, fieldID, pagerduty.CreateIncidentTypeFieldOptionPayload{
+				Data: &pagerduty.IncidentTypeFieldOptionData{
+					Value:    opt,
+					DataType: field.DataType,
+				},
+			})
+			if err != nil {
+				if util.IsAuthError(err) {
+					return retry.NonRetryableError(err)
+				}
+				return retry.RetryableError(err)
+			}
+			return nil
 		})
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -357,7 +376,19 @@ func (r *resourceIncidentTypeCustomField) Update(ctx context.Context, req resour
 	}
 
 	for _, opt := range deletions {
-		err := r.client.DeleteIncidentTypeFieldOption(ctx, incidentTypeID, field.ID, db[opt])
+		err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+			err := r.client.DeleteIncidentTypeFieldOption(ctx, incidentTypeID, field.ID, db[opt])
+			if err != nil {
+				if util.IsAuthError(err) {
+					return retry.NonRetryableError(err)
+				}
+				if util.IsNotFoundError(err) {
+					return nil // Successfully deleted or already gone
+				}
+				return retry.RetryableError(err)
+			}
+			return nil
+		})
 		if err != nil {
 			resp.Diagnostics.AddError(
 				fmt.Sprintf("Error updating PagerDuty incident type custom field %s", model.ID),
@@ -397,8 +428,20 @@ func (r *resourceIncidentTypeCustomField) Delete(ctx context.Context, req resour
 		return
 	}
 
-	err = r.client.DeleteIncidentTypeField(ctx, incidentTypeID, fieldID)
-	if err != nil && !util.IsNotFoundError(err) {
+	err = retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		err = r.client.DeleteIncidentTypeField(ctx, incidentTypeID, fieldID)
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			if util.IsNotFoundError(err) {
+				return nil // Successfully deleted or already gone
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
+	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error deleting PagerDuty incident type custom field %s", id),
 			err.Error(),

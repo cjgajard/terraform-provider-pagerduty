@@ -506,12 +506,22 @@ func resourcePagerDutyServiceCreate(d *schema.ResourceData, meta interface{}) er
 
 	log.Printf("[INFO] Creating PagerDuty service %s", service.Name)
 
-	service, _, err = client.Services.Create(service)
+	var createdService *pagerduty.Service
+	err = retry.RetryContext(context.Background(), 2*time.Minute, func() *retry.RetryError {
+		createdService, _, err = client.Services.Create(service)
+		if err != nil {
+			if isAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
 
-	d.SetId(service.ID)
+	d.SetId(createdService.ID)
 
 	// We wait for internal subsystem to sync. Otherwise fields like
 	// alert_grouping_parameters will return empty.
@@ -540,7 +550,16 @@ func resourcePagerDutyServiceUpdateContext(ctx context.Context, d *schema.Resour
 
 	log.Printf("[INFO] Updating PagerDuty service %s", d.Id())
 
-	_, _, err = client.Services.Update(d.Id(), service)
+	err = retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		_, _, err = client.Services.Update(d.Id(), service)
+		if err != nil {
+			if isAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
 	if err != nil {
 		diags = diag.FromErr(handleNotFoundError(err, d))
 		return
@@ -569,7 +588,17 @@ func resourcePagerDutyServiceDelete(d *schema.ResourceData, meta interface{}) er
 
 	log.Printf("[INFO] Deleting PagerDuty service %s", d.Id())
 
-	if _, err := client.Services.Delete(d.Id()); err != nil {
+	err = retry.RetryContext(context.Background(), 2*time.Minute, func() *retry.RetryError {
+		_, err := client.Services.Delete(d.Id())
+		if err != nil {
+			if isAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
+	if err != nil {
 		return handleNotFoundError(err, d)
 	}
 

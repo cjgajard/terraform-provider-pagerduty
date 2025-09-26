@@ -142,7 +142,17 @@ func (r *resourceUserContactMethod) Create(ctx context.Context, req resource.Cre
 	plan := buildPagerdutyContactMethod(&model)
 	log.Printf("[INFO] Creating PagerDuty user contact method %s", plan.Label)
 
-	response, err := r.client.CreateUserContactMethodWithContext(ctx, plan.UserID, plan.ContactMethod)
+	var response *pagerduty.ContactMethod
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		response, err = r.client.CreateUserContactMethodWithContext(ctx, plan.UserID, plan.ContactMethod)
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
 	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error creating PagerDuty user contact method %s", plan.Label),
@@ -202,7 +212,18 @@ func (r *resourceUserContactMethod) Update(ctx context.Context, req resource.Upd
 	}
 	log.Printf("[INFO] Updating PagerDuty user contact method %s", plan.ID)
 
-	response, err := r.client.UpdateUserContactMethodWthContext(ctx, plan.UserID, plan.ContactMethod)
+	var response *pagerduty.ContactMethod
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		response, err = r.client.UpdateUserContactMethodWthContext(ctx, plan.UserID, plan.ContactMethod)
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
+
 	processedResponse, err := r.processUpdateContactMethodResponse(ctx, plan.UserID, plan.ID, &plan.ContactMethod, response, err)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -240,8 +261,20 @@ func (r *resourceUserContactMethod) Delete(ctx context.Context, req resource.Del
 	}
 	log.Printf("[INFO] Deleting PagerDuty user contact method %s", id)
 
-	err := r.client.DeleteUserContactMethodWithContext(ctx, userID.ValueString(), id.ValueString())
-	if err != nil && !util.IsNotFoundError(err) {
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		err := r.client.DeleteUserContactMethodWithContext(ctx, userID.ValueString(), id.ValueString())
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			if util.IsNotFoundError(err) {
+				return nil // Successfully deleted or already gone
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
+	if err != nil {
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error deleting PagerDuty user contact method %s", id),
 			err.Error(),
@@ -331,7 +364,19 @@ func buildPagerdutyContactMethod(model *resourceUserContactMethodModel) ContactM
 }
 
 func (r *resourceUserContactMethod) updateContactMethodCall(ctx context.Context, userID, contactMethodID string, contactMethod *pagerduty.ContactMethod) (*pagerduty.ContactMethod, error) {
-	return r.client.UpdateUserContactMethodWthContext(ctx, userID, *contactMethod)
+	var response *pagerduty.ContactMethod
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		var err error
+		response, err = r.client.UpdateUserContactMethodWthContext(ctx, userID, *contactMethod)
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
+	return response, err
 }
 
 func (r *resourceUserContactMethod) processUpdateContactMethodResponse(ctx context.Context, userID, contactMethodID string, contactMethod *pagerduty.ContactMethod, response *pagerduty.ContactMethod, err error) (*pagerduty.ContactMethod, error) {
@@ -348,7 +393,19 @@ func (r *resourceUserContactMethod) processUpdateContactMethodResponse(ctx conte
 			return nil, err
 		}
 
-		err = r.client.DeleteUserContactMethodWithContext(ctx, userID, existingContact.ID)
+		err = retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+			err = r.client.DeleteUserContactMethodWithContext(ctx, userID, existingContact.ID)
+			if err != nil {
+				if util.IsAuthError(err) {
+					return retry.NonRetryableError(err)
+				}
+				if util.IsNotFoundError(err) {
+					return nil // Successfully deleted or already gone
+				}
+				return retry.RetryableError(err)
+			}
+			return nil
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -369,14 +426,37 @@ func (r *resourceUserContactMethod) processUpdateContactMethodResponse(ctx conte
 }
 
 func (r *resourceUserContactMethod) findExistingContactMethod(ctx context.Context, userID string, contactMethod *pagerduty.ContactMethod) (*pagerduty.ContactMethod, error) {
-	contactMethods, err := r.client.ListUserContactMethodsWithContext(ctx, userID)
+	var contactMethods *pagerduty.ListContactMethodsResponse
+	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+		var err error
+		contactMethods, err = r.client.ListUserContactMethodsWithContext(ctx, userID)
+		if err != nil {
+			if util.IsAuthError(err) {
+				return retry.NonRetryableError(err)
+			}
+			return retry.RetryableError(err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("[User Contact method must be unique] but failed to fetch existing ones: %w", err)
 	}
 
 	for _, contact := range contactMethods.ContactMethods {
 		if r.isSameContactMethod(&contact, contactMethod) {
-			return r.client.GetUserContactMethodWithContext(ctx, userID, contact.ID)
+			var foundContact *pagerduty.ContactMethod
+			err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
+				var err error
+				foundContact, err = r.client.GetUserContactMethodWithContext(ctx, userID, contact.ID)
+				if err != nil {
+					if util.IsAuthError(err) {
+						return retry.NonRetryableError(err)
+					}
+					return retry.RetryableError(err)
+				}
+				return nil
+			})
+			return foundContact, err
 		}
 	}
 
