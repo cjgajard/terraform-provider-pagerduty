@@ -1,10 +1,13 @@
 package util
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 )
@@ -39,5 +42,73 @@ func TestValidateTZValueDiagFunc(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("want %v; got %v", c.want, got)
 		}
+	}
+}
+
+func TestIsAuthError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "non-API error",
+			err:      errors.New("some other error"),
+			expected: false,
+		},
+		{
+			name: "401 Unauthorized API error",
+			err: pagerduty.APIError{
+				StatusCode: http.StatusUnauthorized,
+				Message:    "Unauthorized",
+			},
+			expected: true,
+		},
+		{
+			name: "403 Forbidden API error",
+			err: pagerduty.APIError{
+				StatusCode: http.StatusForbidden,
+				Message:    "Forbidden",
+			},
+			expected: true,
+		},
+		{
+			name: "400 Bad Request API error",
+			err: pagerduty.APIError{
+				StatusCode: http.StatusBadRequest,
+				Message:    "Bad Request",
+			},
+			expected: false,
+		},
+		{
+			name: "404 Not Found API error",
+			err: pagerduty.APIError{
+				StatusCode: http.StatusNotFound,
+				Message:    "Not Found",
+			},
+			expected: false,
+		},
+		{
+			name: "500 Internal Server Error API error",
+			err: pagerduty.APIError{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "Internal Server Error",
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsAuthError(tt.err)
+			if result != tt.expected {
+				t.Errorf("IsAuthError(%v) = %v, expected %v", tt.err, result, tt.expected)
+			}
+		})
 	}
 }
