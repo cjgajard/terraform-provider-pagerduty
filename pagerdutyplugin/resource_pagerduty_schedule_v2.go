@@ -16,8 +16,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -44,7 +45,9 @@ func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"name": schema.StringAttribute{
-				Required: true,
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"description": schema.StringAttribute{
 				Optional:      true,
@@ -53,12 +56,16 @@ func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"time_zone": schema.StringAttribute{
-				Required:   true,
-				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
+				Optional:      true,
+				Computed:      true,
+				Validators:    []validator.String{stringvalidator.LengthAtLeast(1)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"teams": schema.SetAttribute{
-				Optional:    true,
-				ElementType: types.StringType,
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.StringType,
+				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()},
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -71,23 +78,31 @@ func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest,
 							PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 						},
 						"name": schema.StringAttribute{
-							Required: true,
+							Optional:      true,
+							Computed:      true,
+							PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 						},
 						"start_time": schema.StringAttribute{
-							Optional: true,
+							Optional:      true,
+							Computed:      true,
+							PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 						},
 						"turn_length": schema.Int64Attribute{
-							Optional:   true,
-							Validators: []validator.Int64{int64validator.Between(3600, 365*24*3600)},
+							Optional:      true,
+							Computed:      true,
+							Validators:    []validator.Int64{int64validator.Between(3600, 365*24*3600)},
+							PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 						},
 						"assignment_strategy": schema.StringAttribute{
-							Required: true,
+							Optional:      true,
+							Computed:      true,
 							Validators: []validator.String{
 								stringvalidator.OneOf(
 									"every_member_assignment_strategy",
 									"rotating_member_assignment_strategy",
 								),
 							},
+							PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 						},
 						"shifts_per_member": schema.Int64Attribute{
 							Optional:      true,
@@ -102,13 +117,19 @@ func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest,
 							NestedObject: schema.NestedBlockObject{
 								Attributes: map[string]schema.Attribute{
 									"user_id": schema.StringAttribute{
-										Required: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"name": schema.StringAttribute{
-										Optional: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"color": schema.StringAttribute{
-										Optional: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 								},
 							},
@@ -122,32 +143,46 @@ func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest,
 										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"start_time": schema.StringAttribute{
-										Required: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"end_time": schema.StringAttribute{
-										Required: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"time_zone": schema.StringAttribute{
-										Optional: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"effective_since": schema.StringAttribute{
-										Required: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"effective_until": schema.StringAttribute{
-										Optional: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"recurrence": schema.ListAttribute{
-										Optional:    true,
-										ElementType: types.StringType,
+										Optional:      true,
+										Computed:      true,
+										ElementType:   types.StringType,
+										PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
 									},
 									"assignment_strategy": schema.StringAttribute{
-										Optional: true,
+										Optional:      true,
+										Computed:      true,
 										Validators: []validator.String{
 											stringvalidator.OneOf(
 												"every_member_assignment_strategy",
 												"rotating_member_assignment_strategy",
 											),
 										},
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 								},
 							},
@@ -156,24 +191,25 @@ func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest,
 							NestedObject: schema.NestedBlockObject{
 								Attributes: map[string]schema.Attribute{
 									"type": schema.StringAttribute{
-										Required: true,
-										Validators: []validator.String{
-											stringvalidator.OneOf(
-												"daily_restriction",
-												"weekly_restriction",
-											),
-										},
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"start_time_of_day": schema.StringAttribute{
-										Required: true,
+										Optional:      true,
+										Computed:      true,
+										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 									},
 									"start_day_of_week": schema.Int64Attribute{
-										Optional:   true,
-										Validators: []validator.Int64{int64validator.Between(0, 7)},
+										Optional:      true,
+										Computed:      true,
+										Validators:    []validator.Int64{int64validator.Between(0, 7)},
+										PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 									},
 									"duration_seconds": schema.Int64Attribute{
-										Required:   true,
-										Validators: []validator.Int64{int64validator.Between(1, 7*24*3600-1)},
+										Optional:      true,
+										Computed:      true,
+										Validators:    []validator.Int64{int64validator.Between(1, 7*24*3600-1)},
+										PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 									},
 								},
 							},
