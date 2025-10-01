@@ -167,6 +167,7 @@ github.com/hashicorp/terraform-plugin-framework/resource/schema
 github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault
 github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier
 github.com/hashicorp/terraform-plugin-framework/resource/schema/defaults
+github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier
 github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier
 github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier
 github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier
@@ -219,8 +220,10 @@ github.com/hashicorp/terraform-plugin-mux/tf5muxserver
 # github.com/hashicorp/terraform-plugin-sdk/v2 v2.31.0
 ## explicit; go 1.20
 github.com/hashicorp/terraform-plugin-sdk/v2/diag
+github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest
 github.com/hashicorp/terraform-plugin-sdk/v2/helper/id
 github.com/hashicorp/terraform-plugin-sdk/v2/helper/logging
+github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource
 github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry
 github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema
 github.com/hashicorp/terraform-plugin-sdk/v2/helper/structure
@@ -232,6 +235,7 @@ github.com/hashicorp/terraform-plugin-sdk/v2/internal/helper/hashcode
 github.com/hashicorp/terraform-plugin-sdk/v2/internal/logging
 github.com/hashicorp/terraform-plugin-sdk/v2/internal/plans/objchange
 github.com/hashicorp/terraform-plugin-sdk/v2/internal/plugin/convert
+github.com/hashicorp/terraform-plugin-sdk/v2/internal/plugintest
 github.com/hashicorp/terraform-plugin-sdk/v2/internal/tfdiags
 github.com/hashicorp/terraform-plugin-sdk/v2/meta
 github.com/hashicorp/terraform-plugin-sdk/v2/plugin

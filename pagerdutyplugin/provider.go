@@ -89,6 +89,7 @@ func (p *Provider) Resources(_ context.Context) [](func() resource.Resource) {
 		func() resource.Resource { return &resourceIncidentTypeCustomField{} },
 		func() resource.Resource { return &resourceIncidentType{} },
 		func() resource.Resource { return &resourceJiraCloudAccountMappingRule{} },
+		func() resource.Resource { return &resourceScheduleV2{} },
 		func() resource.Resource { return &ServiceCustomFieldResource{} },
 		func() resource.Resource { return &resourceServiceDependency{} },
 		func() resource.Resource { return &resourceTagAssignment{} },

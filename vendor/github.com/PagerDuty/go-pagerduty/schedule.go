@@ -388,3 +388,185 @@ func getOverrideFromResponse(c *Client, resp *http.Response) (*Override, error) 
 
 	return &o, nil
 }
+
+// FlexibleSchedule represents the new v2 flexible schedule structure
+type FlexibleSchedule struct {
+	APIObject
+	Name          string               `json:"name,omitempty"`
+	Description   string               `json:"description,omitempty"`
+	TimeZone      string               `json:"time_zone,omitempty"`
+	Rotations     []ScheduleRotation   `json:"rotations,omitempty"`
+	FinalSchedule *FinalSchedule       `json:"final_schedule,omitempty"`
+	Teams         []APIObject          `json:"teams,omitempty"`
+}
+
+// ScheduleRotation represents a rotation in the flexible schedule
+type ScheduleRotation struct {
+	APIObject
+	Name   string          `json:"name,omitempty"`
+	Events []ScheduleEvent `json:"events,omitempty"`
+}
+
+// ScheduleEvent represents an event within a rotation
+type ScheduleEvent struct {
+	APIObject
+	StartTime          *ZonedDateTime      `json:"start_time,omitempty"`
+	EndTime            *ZonedDateTime      `json:"end_time,omitempty"`
+	EffectiveSince     string              `json:"effective_since,omitempty"`
+	EffectiveUntil     *string             `json:"effective_until,omitempty"`
+	Recurrence         []string            `json:"recurrence,omitempty"`
+	AssignmentStrategy *AssignmentStrategy `json:"assignment_strategy,omitempty"`
+}
+
+// ZonedDateTime represents a date-time with timezone
+type ZonedDateTime struct {
+	DateTime string `json:"date_time,omitempty"`
+	TimeZone string `json:"time_zone,omitempty"`
+}
+
+// AssignmentStrategy represents how members are assigned to shifts
+type AssignmentStrategy struct {
+	Type            string        `json:"type,omitempty"`
+	ShiftsPerMember int           `json:"shifts_per_member,omitempty"`
+	Members         []ShiftMember `json:"members,omitempty"`
+}
+
+// ShiftMember represents a member in an assignment strategy
+type ShiftMember struct {
+	Type   string `json:"type,omitempty"`
+	UserID string `json:"user_id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Color  string `json:"color,omitempty"`
+}
+
+// FinalSchedule represents the computed final schedule
+type FinalSchedule struct {
+	Type                       string                    `json:"type,omitempty"`
+	RenderedCoveragePercentage float64                   `json:"rendered_coverage_percentage,omitempty"`
+	ComputedShiftAssignments   []ComputedShiftAssignment `json:"computed_shift_assignments,omitempty"`
+}
+
+// ComputedShiftAssignment represents a computed shift assignment
+type ComputedShiftAssignment struct {
+	Type      string                         `json:"type,omitempty"`
+	StartTime string                         `json:"start_time,omitempty"`
+	EndTime   string                         `json:"end_time,omitempty"`
+	Member    *ShiftMember                   `json:"member,omitempty"`
+	Source    *ComputedShiftAssignmentSource `json:"source,omitempty"`
+}
+
+// ComputedShiftAssignmentSource represents the source of a computed shift assignment
+type ComputedShiftAssignmentSource struct {
+	Type              string `json:"type,omitempty"`
+	RotationID        string `json:"rotation_id,omitempty"`
+	ShiftID           string `json:"shift_id,omitempty"`
+	ShiftAssignmentID string `json:"shift_assignment_id,omitempty"`
+	CoverageID        string `json:"coverage_id,omitempty"`
+}
+
+// GetFlexibleScheduleOptions is the data structure used when calling the GetFlexibleSchedule API endpoint.
+type GetFlexibleScheduleOptions struct {
+	TimeZone string   `url:"time_zone,omitempty"`
+	Since    string   `url:"since,omitempty"`
+	Until    string   `url:"until,omitempty"`
+	Includes []string `url:"include,omitempty,brackets"`
+}
+
+// CreateFlexibleScheduleOptions is the data structure used when calling the CreateFlexibleSchedule API endpoint.
+type CreateFlexibleScheduleOptions struct {
+	Overflow bool `url:"overflow,omitempty"`
+}
+
+// UpdateFlexibleScheduleOptions is the data structure used when calling the UpdateFlexibleSchedule API endpoint.
+type UpdateFlexibleScheduleOptions struct {
+	Overflow bool `url:"overflow,omitempty"`
+}
+
+// CreateFlexibleSchedule creates a new flexible schedule using the v2 API.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) CreateFlexibleSchedule(s FlexibleSchedule) (*FlexibleSchedule, error) {
+	return c.CreateFlexibleScheduleWithContext(context.Background(), s)
+}
+
+// CreateFlexibleScheduleWithContext creates a new flexible schedule using the v2 API.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) CreateFlexibleScheduleWithContext(ctx context.Context, s FlexibleSchedule) (*FlexibleSchedule, error) {
+	d := map[string]FlexibleSchedule{
+		"schedule": s,
+	}
+
+	// Mock-up: In reality, this would use /api/v2/schedules endpoint
+	resp, err := c.post(ctx, "/schedules", d, nil)
+	return getFlexibleScheduleFromResponse(c, resp, err)
+}
+
+// GetFlexibleSchedule shows detailed information about a flexible schedule.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) GetFlexibleSchedule(id string, o GetFlexibleScheduleOptions) (*FlexibleSchedule, error) {
+	return c.GetFlexibleScheduleWithContext(context.Background(), id, o)
+}
+
+// GetFlexibleScheduleWithContext shows detailed information about a flexible schedule.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) GetFlexibleScheduleWithContext(ctx context.Context, id string, o GetFlexibleScheduleOptions) (*FlexibleSchedule, error) {
+	v, err := query.Values(o)
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse values for query: %v", err)
+	}
+
+	// Mock-up: In reality, this would use /api/v2/schedules/{id} endpoint
+	resp, err := c.get(ctx, "/schedules/"+id+"?"+v.Encode(), nil)
+	return getFlexibleScheduleFromResponse(c, resp, err)
+}
+
+// UpdateFlexibleSchedule updates an existing flexible schedule.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) UpdateFlexibleSchedule(id string, s FlexibleSchedule) (*FlexibleSchedule, error) {
+	return c.UpdateFlexibleScheduleWithContext(context.Background(), id, s)
+}
+
+// UpdateFlexibleScheduleWithContext updates an existing flexible schedule.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) UpdateFlexibleScheduleWithContext(ctx context.Context, id string, s FlexibleSchedule) (*FlexibleSchedule, error) {
+	d := map[string]FlexibleSchedule{
+		"schedule": s,
+	}
+
+	// Mock-up: In reality, this would use /api/v2/schedules/{id} endpoint
+	resp, err := c.put(ctx, "/schedules/"+id, d, nil)
+	return getFlexibleScheduleFromResponse(c, resp, err)
+}
+
+// DeleteFlexibleSchedule deletes a flexible schedule.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) DeleteFlexibleSchedule(id string) error {
+	return c.DeleteFlexibleScheduleWithContext(context.Background(), id)
+}
+
+// DeleteFlexibleScheduleWithContext deletes a flexible schedule.
+// This is a mock-up implementation for the new flexible schedule API.
+func (c *Client) DeleteFlexibleScheduleWithContext(ctx context.Context, id string) error {
+	// Mock-up: In reality, this would use /api/v2/schedules/{id} endpoint
+	_, err := c.delete(ctx, "/schedules/"+id)
+	return err
+}
+
+func getFlexibleScheduleFromResponse(c *Client, resp *http.Response, err error) (*FlexibleSchedule, error) {
+	if err != nil {
+		return nil, err
+	}
+
+	var target map[string]FlexibleSchedule
+	if dErr := c.decodeJSON(resp, &target); dErr != nil {
+		return nil, fmt.Errorf("Could not decode JSON response: %v", dErr)
+	}
+
+	const rootNode = "schedule"
+
+	t, nodeOK := target[rootNode]
+	if !nodeOK {
+		return nil, fmt.Errorf("JSON response does not have %s field", rootNode)
+	}
+
+	return &t, nil
+}
