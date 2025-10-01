@@ -1,0 +1,632 @@
+﻿Human Availability - Detailed API Descriptions
+Public APIs
+Public APIs include entry points through both Web and API BFFs. In other words, the surface area for all public APIs is consistent between both BFF Web and BFF API. BFF Mobile utilizes aggregators to build a different structure for the mobile app, and so changes will be made to those aggregators to surface data as necessary.
+Flexible Schedules
+We are introducing a new version of the Schedules API with breaking changes in the payload, and some new URLs for managing coverage instead of overrides. Today, BFF Web puts its versioning in its route, e.g., api/v1/schedules, while BFF API uses the `Accept` header with a ;version=2 parameter to indicate the version of the API to use.
+
+
+We will introduce a new /api/v2/schedules section to BFF Web, and a new ;version=3 Accept header parameter to BFF API. For calls to BFF API without an explicit version set in its Accept header, we will continue to default to ;version=2 as we do today. In the future, we can change that default as we move to deprecate legacy schedules.
+
+
+Example payloads are available:
+1. Example preview request - schedule not yet saved
+2. Example preview response - schedule not yet saved
+3. Example preview request - update an existing schedule
+4. Example preview response - update an existing schedule
+5. Example GET Response
+Shapes
+Below are typescript definitions for the new shapes being introduced in the public API surface for flexible schedules.
+
+
+type ID = string; // validated as a PD-obfuscated ID
+type UUIDv7 = string; // validated as a base-32 encoded, unpadded UUIDv7 string
+
+
+type DateTime = string; // validated as an ISO 8601 date-time string
+type TimeZone = string; // validated as an IANA time zone identifier
+type ZonedDateTime = { "date_time": DateTime, "time_zone": TimeZone }
+
+
+// This represents the only kind of schedule member we have today: users
+type UserMember = {
+  "type": "user_member",
+  "user_id": ID,
+  "name": string,
+  "color": string
+};
+
+
+// This member type allows us to _remove_ users from assignments by assigning the empty member as coverage. It can also enable future beavhiors like creating an "empty" rotation that creates shifts that need coverage assigned, or adding a "gap" in a rotation by having the empty member be part of the rotation
+type EmptyMember = {
+  "type": "empty_member"
+};
+
+
+// In the future, we can extend this by offering things like a TeamMember to put an entire team on call at once.
+type ShiftMember = UserMember | EmptyMember;
+
+
+// While we want to allow a single shift to have multiple users on it, we also want to enable coverage per user on that assignment. To enable this, each shift will have N Shift Assignments, one for each member. Each of those assignments will utilize its own coverage, allowing for maximum flexibility
+type ShiftAssignment = {
+  "id": UUIDv7,
+  "type": "shift_assignment",
+  "member": ShiftMember
+  "coverage": CoverageShift[]
+};
+
+
+// Coverage shifts will be verified to fit within the shift that they cover. If a shift with coverage is moved, the coverage will be removed and if necessary a conflict notification will be sent.
+type CoverageShift = {
+  "id": UUIDv7,
+  "type": "coverage_shift",
+  "start_time": DateTime,
+  "end_time": DateTime,
+  "member": ShiftMember
+};
+
+
+type OldScheduleApi = {
+  "schedule": {
+    "id": ID,
+    "schedule_layers": any[],
+    "override_subschedule": any,
+    "final_schedule": any
+    /* and other fields */
+  }
+};
+
+
+// We remove "override_subschedule", replace "schedule_layers" with "schedule_rotations", replace "oncall" with "oncalls", and replace the old final_schedule structure containing rendered_schedule_entries with a new structure with computed_shift_assignments. 
+
+
+// Of note, the old API contained individual "rendered_schedule_entries" for each layer, and we will not be continuing this with "shifts". Instead, endpoints will be available to retrieve the individual layers information if necessary.
+
+
+// Also of note, the old API provided the `override_subschedule` in the response. Because we don't provide shifts, we won't provide the equivalent coverage, nor will we provide custom_shifts. All shift data outside computed_shift_assignments will be on their own URI.
+type NewScheduleApi = {
+  "schedule": Omit<Pick<OldScheduleApi, "schedule">, "schedule_layers" | "final_schedule" | "override_subschedule"> & {
+    "rotations": ScheduleRotation[],
+    "final_schedule": FinalSchedule
+  }
+};
+
+
+// custom_shifts allow users to provide arbitrary shift data to our schedules, skipping past rotations and enabling total control of our schedules from external automations.
+type CustomShift = {
+  "id": UUIDv7,
+  "type": "custom_shift",
+  "start_time": DateTime,
+  "end_time": DateTime,
+  "assignments": ShiftAssignment[]
+}
+
+
+// A schedule rotation carries the events its used over time, as well as all of the shifts + their associated coverage tied to this rotation
+type ScheduleRotation = {
+  "id": UUIDv7,
+  "type": "schedule_rotation",
+  "name": string,
+  "events": ScheduleEvent[]
+};
+
+
+
+
+type ScheduleEvent = {
+  "id": UUIDv7,
+  "type": "schedule_event",
+  "start_time": ZonedDateTime,
+  "end_time": ZonedDateTime,
+  "effective_since": DateTime,
+  "effective_until": DateTime | null,
+  "recurrence": string[] | null,
+  "assignment_strategy": AssignmentStrategy
+};
+
+
+// The first user will receive the first n shifts, then the next user will receive the next n, and so on.
+type RotatingMemberAssignmentStrategy = {
+  "type": "rotating_member_assignment_strategy",
+  "shifts_per_member": number,
+  "members": ShiftMember[]
+};
+
+
+// Every member will be assigned to every shift
+type EveryMemberAssignmentStrategy = {
+  "type": "every_member_assignment_strategy",
+  "members": ShiftMember[]
+};
+
+
+// Assignment Strategies let us build flexibility into how we define who receives each shift. In the future we can offer a "DynamicRotatingAssignmentStrategy" for Dynamic Shifts.
+type AssignmentStrategy = EveryMemberAssignmentStrategy | RotatingMemberAssignmentStrategy;
+
+
+// schedule_rotation_shifts differ from schedule_shifts in that their start and end times can not be modified, only their coverage can. To modify a rotation shifts start/end time, modify the rotation to produce the new shape that is desired.
+type ScheduleRotationShift = {
+  "id": UUIDv7,
+  "type": "schedule_rotation_shift",
+  "start_time": DateTime,
+  "end_time": DateTime,
+  "assignments": ShiftAssignment[]
+};
+
+
+// Being able to trace a computed shift assignment back to where it came from enables easy coverage creation against the source
+type ScheduleRotationShiftSource = {
+  "type": "schedule_rotation_shift",
+  "rotation_id": UUIDv7,
+  "shift_id": UUIDv7,
+  "shift_assignment_id": UUIDv7
+};
+
+
+type ScheduleRotationShiftCoverageSource = {
+  "type": "schedule_rotation_shift_coverage",
+  "rotation_id": UUIDv7,
+  "shift_id": UUIDv7,
+  "shift_assignment_id": UUIDv7,
+  "coverage_id": UUIDv7
+};
+
+
+type CustomShiftSource = {
+ "type": "custom_shift",
+  "shift_id": UUIDv7,
+  "shift_assignment_id": UUIDv7
+};
+
+
+type CustomShiftCoverageSource = {
+ "type": "custom_shift_coverage",
+  "shift_id": UUIDv7,
+  "shift_assignment_id": UUIDv7,
+  "coverage_id": UUIDv7
+};
+
+
+type ComputedShiftAssignmentSource = 
+  | ScheduleRotationShiftSource 
+  | ScheduleRotationShiftCoverageSource 
+  | CustomShiftSource
+  | CustomShiftCoverageSource;
+
+
+// Computed Shifts represent the "final layer". In other words, if you want to have a simple view of all shifts on a schedule _after applying coverage_, you will find it here. Each ComputedShift is tied back to the shift that produced it.
+type ComputedShiftAssignment = {
+  "type": "computed_shift_assignment",
+  "start_time": DateTime,
+  "end_time": DateTime,
+  "member": ShiftMember,
+  "source": ComputedShiftAssignmentSource
+};
+
+
+type FinalSchedule = {
+  "type": "final_schedule",
+  "computed_shift_assignments": ComputedShiftAssignment[],
+  "rendered_coverage_percentage": number
+};
+
+Endpoints
+Below is a mapping of BFF Web / API endpoints from the old to new version. For the most part, things stay the same, with new endpoints possible for managing individual parts of a schedule, and a new structure for coverage.
+
+
+
+
+Endpoint
+BFF API Path
+	BFF Web Path (v1)
+	BFF Web Path (v2)
+	Milestone
+	BFFs
+	List Schedules 
+GET api.pagerduty.com/schedules
+	GET /api/v1/schedules
+	GET /api/v2/schedules
+	M5
+	Web
+API
+Mobile
+	Preview a Schedule POST api.pagerduty.com/schedules/preview
+	POST /api/v1/schedules/preview
+	POST /api/v2/schedules/preview
+	M3
+	Web
+	Create a Schedule
+POST api.pagerduty.com/schedules
+	POST /api/v1/schedules
+	POST /api/v2/schedules
+	M5
+	Web
+API
+	Get a Schedule
+GET api.pagerduty.com/schedules/_id
+	GET /api/v1/schedules/_id
+	GET /api/v2/schedules/_id
+	M5
+	Web
+API
+Mobile
+	Replace a Schedule PUT api.pagerduty.com/schedules/_id
+	N/A
+	PUT /api/v2/schedules/_id
+	M6
+	Web
+API
+	Patch a Schedule
+PATCH api.pagerduty.com/schedules/_id
+	PUT /api/v1/schedules/_id
+Note: the existing PUT endpoints behaves more akin to PATCH behaviour
+	PATCH /api/v2/schedules/_id
+	M6
+	Web
+API
+	Delete a Schedule DELETE api.pagerduty.com/schedules/_id
+	DELETE /api/v1/schedules/_id
+	DELETE /api/v2/schedules/_id
+	M6
+	Web
+API
+	List users on call
+GET api.pagerduty.com/schedules/_id/users
+	GET /api/v1/schedules/_id/users
+	GET /api/v2/schedules/_id/users
+	M5
+	Web
+API
+Mobile
+	List audit records for a Schedule
+GET api.pagerduty.com/schedules/_id/audit/records
+	GET /api/v1/schedules/_id/audit/records
+	GET /api/v2/schedules/_id/audit/records
+	M5 (?)
+	Web
+API
+Mobile
+	List a schedule’s custom shifts
+GET api.pagerduty.com/schedules/_id/custom_shifts
+	N/A
+	GET /api/v2/schedules/_id/custom_shifts
+	M6
+	Web
+API
+	Create one or more Custom Shifts
+POST api.pagerduty.com/schedules/_id/custom_shifts
+	N/A
+	POST /api/v2/schedules/_id/custom_shifts
+	M6
+	Web
+API
+	Get a Custom Shift
+GET api.pagerduty.com/schedules/_id/custom_shifts/_custom_shift_id
+	N/A
+	GET /api/v2/schedules/_id/custom_shifts/_custom_shift_id
+	M6
+	Web
+API
+	Replace a Custom Shift
+PUT api.pagerduty.com/schedules/_id/custom_shifts/custom_shift_id
+	N/A
+	PUT /api/v2/schedules/_id/custom_shifts/custom_shift_id
+	M6
+	Web
+API
+	Patch a Custom Shift
+PATCH api.pagerduty.com/schedules/_id/custom_shifts/custom_shift_id
+	N/A
+	PATCH /api/v2/schedules/_id/custom_shifts/custom_shift_id
+	M6
+	Web
+API
+
+
+	Delete a Custom Shift
+DELETE api.pagerduty.com/schedules/_id/custom_shfits/_customshiftid
+	N/A
+	DELETE /api/v2/schedules/_id/custom_shifts/_customshiftid
+	M6
+	Web
+API
+	List a schedule’s rotations
+GET api.pagerduty.com/schedules/_id/rotations
+	N/A
+	N/A
+	M6
+	API
+	Create Rotations
+POST api.pagerduty.com/schedules/_id/rotations
+	N/A
+	N/A
+	M6
+	API
+	Get a Rotation
+GET api.pagerduty.com/schedules/_id/rotati
+ons/_rotationid
+	N/A
+	N/A
+	M6
+	API
+	Replace Rotation
+PUT api.pagerduty.com/schedules/_id/rotations/_rotation_id
+	N/A
+	N/A
+	M6
+	API
+	Patch Rotation
+PATCH api.pagerduty.com/schedules/_id/rotations/_rotation_id
+	N/A
+	N/A
+	M6
+	API
+	Delete a Rotation
+DELETE api.pagerduty.com/schedules/_id/rotatios/_rotationid
+	N/A
+	N/A
+	M6
+	API
+	List Overrides
+GET api.pagerduty.com/schedules/_id/overrides
+	GET /api/v1/schedules/_id/overrides
+	DEPRECATED
+TODO: confirm traffic sources through BFF logs 
+	n/a
+	Web
+API
+Mobile
+	Create one or more overrides
+POST api.pagerduty.com/schedules/_id/overrides
+	POST /api/v1/schedules/_id/overrides
+	POST /api/v2/schedules/_id/shift_assignments/_assignmentid/coverage
+
+
+POST /api/v2/schedules/_id/rotations/_rotationid/shift_assignments/coverage
+
+
+POST /api/v2/schedules/_id/coverage
+[a]	
+M6
+	Web
+API
+Mobile
+	Delete an Override DELETE api.pagerduty.com/schedules/_id/overrides/_overrideid
+	DELETE /api/v1/schedules/_id/overrides/_overrideid
+	DELETE /api/v2/schedules/_id/shift_assignments/_assignmentid/coverage/_coverageid
+	M6
+	Web
+API
+Mobile
+	Query Parameters
+Today, the schedules API provides a set of query parameters that we will want to keep in the new API. 
+* since and until: Together, these parameters are used to indicate the time-range for which data should be retrieved when retrieving schedule data. These parameters will influence the rotations, events, shifts, and custom shifts returned in each response. BREAKING CHANGE: If not provided, the time range will default to now-now + 1 week. Previously, the time range would default to now-now + 2 weeks.
+* overflow: This parameter determines whether shifts returned from the API are “fit” into the request time window or not. E.g., if a shift runs 09:00-17:00, and the since/until of the request is 10:00-16:00, overflow=true would return the shift as 09:00-17:00, while overflow=false would return the shift as 10:00-16:00. Defaults to false
+* include[]: The include array can be used to gather additional information about the schedule and its associations. Valid values are users, members, teams, privileges, final_schedule, and final_schedule_empty_members. All of these will match pre-existing behavior besides members and final_schedule_empty_members, which are new values. 
+   * members replaces the previous color include value, and is used to populate member metadata, which today will be user color and name.
+   * final_schedule_empty_members is used to include computed shift assignments for the empty_member in the final schedule. Including this value will not impact the rendered_coverage_percentage: empty members are still considered not covered even if they are included.
+* exclude[]: The exclude array can be used to explicitly opt out of receiving a default response value. This can be used to improve performance when only specific data is needed. Valid values are users, teams, and escalation_policies.
+* time_zone: This value can be used to return all times within the response in the selected timezone. If not set, each shift will be returned in the schedule’s time zone.
+User Unavailability Shifts
+User Unavailability Shifts are exposed to users as “user unavailabilities”.
+User unavailabilities returned from our API match the following structure:
+{
+  "user_unavailability": {
+    "id": UUIDv7,
+    "type": "user_unavailability",
+    "calendar_id": UUIDv7,
+    "event_id": UUIDv7,
+    "user_id": ID,
+    "start_time": DateTime,
+    "end_time": DateTime,
+    "created_at": DateTime,
+    "updated_at": DateTime
+  }
+}
+GET /users/<user_id>/unavailabilities
+Description
+This endpoint is used to search for user unavailabilities for a given user. The user unavailabilities will be returned in ascending order sorted by start time. If two user unavailabilities start at the same time, they will be ordered by end time in ascending order, meaning shorter duration user unavailabilities will appear before longer duration user unavailabilities.
+Visibility
+This is a public facing endpoint.
+New/Existing
+This is a new endpoint.
+Query Parameters
+* start_time (DateTime): Defines the starting point in time for which the user’s unavailabilities should be retrieved.
+* end_time (DateTime): Defines the end point in time for which the user’s unavailabilities should be retrieved.
+* overflow (boolean, default false): Determines whether the retrieved user unavailabilities can overflow, i.e., whether or not the first user unavailabilities’ start_times and the last user unavailabilities’ end_times are clamped to the requested start_time and end_time.
+* Limit (number, default 25): The pagination limit value.
+* offset (number, default 0): The pagination offset value.
+Response Codes
+* 200 OK
+* 401 Unauthorized
+* 403 Forbidden
+* 404 Not Found
+Response Body Examples
+This endpoint returns a paginated response of user unavailabilities for the associated user:
+{
+  "user_unavailabilities": [
+      {
+      "id": UUIDv7,
+      "type": "user_unavailability",
+      "calendar_id": UUIDv7,
+      "event_id": UUIDv7,
+      "user_id": ID,
+      "start_time": DateTime,
+      "end_time": DateTime,
+      "created_at": DateTime,
+      "updated_at": DateTime
+    }
+  ],
+  "limit": number,
+  "offset": number,
+  "more": boolean
+}
+* event_id is nullable despite the current design requiring all user availabilities be generated through events because in the future we are likely to support direct creation of these kinds of shifts
+GET /users/<user_id>/unavailabilities/<id>
+Description
+This endpoint retrieves a given user unavailability.
+Visibility
+This is a public facing endpoint.
+New/Existing
+This is a new endpoint.
+Query Parameters
+This endpoint accepts no query parameters.
+Response Codes
+* 200 OK
+* 401 Unauthorized
+* 403 Forbidden
+* 404 Not Found
+Response Body Examples
+This endpoint returns the retrieved object using the standard representation of a user unavailability.
+GET /schedules/<schedule_id>/users/unavailabilities
+Description
+This endpoint is used to search for user unavailabilities for a given schedule. The user unavailabilities will be returned in ascending order sorted by start time. If two user unavailabilities start at the same time, they will be ordered by end time in ascending order, meaning shorter duration user unavailabilities will appear before longer duration user unavailabilities.
+Visibility
+This is a public facing endpoint.
+New/Existing
+This is a new endpoint.
+Query Parameters
+* start_time (DateTime): Defines the starting point in time for which the user availabilities should be retrieved.
+* end_time (DateTime): Defines the end point in time for which the user unavailabilities should be retrieved.
+* overflow (boolean, default false): Determines whether the retrieved user unavailabilities can overflow, i.e., whether or not the first unavailabilities’ start_times and the last unavailabilities’ end_times are clamped to the requested start_time and end_time.
+* Limit (number, default 25): The pagination limit value.
+* offset (number, default 0): The pagination offset value.
+Response Codes
+* 200 OK
+* 401 Unauthorized
+* 403 Forbidden
+* 404 Not Found
+Response Body Examples
+This endpoint returns a paginated response of user unavailabilities for the users on the associated schedule:
+{
+  "user_unavailabilities": [
+    {
+      "id": UUIDv7,
+      "type": "user_unavailability",
+      "calendar_id": UUIDv7,
+      "event_id": UUIDv7,
+      "user_id": ID,
+      "start_time": DateTime,
+      "end_time": DateTime,
+      "created_at": DateTime,
+      "updated_at": DateTime
+    }
+  ]
+  "limit": number,
+  "offset": number,
+  "more": boolean
+}
+User Schedule Conflicts
+Conflicts between a user’s on-call time on a schedule and an unavailability shift are exposed to users as “user schedule conflicts”.
+User Schedule Conflicts returned from our API match the following structure:
+{
+  "user_schedule_conflict": {
+    "id": UUIDv7,
+    "type": "user_schedule_conflict",
+    "schedule_id": ID,
+    "computed_shift_assignment_id": UUIDv7,
+    "user_unavailability_shift_id": UUIDv7,
+    "start_date": DateTime,
+    "end_date": DateTime,
+    "created_at": DateTime,
+    "updated_at": DateTime
+  }
+}
+GET /users/<user_id>/user_schedule_conflicts
+Description
+This endpoint is used to search for conflicts for a given user. The conflicts will be returned in ascending order sorted by start time. If two conflicts start at the same time, they will be ordered by end time in ascending order, meaning shorter conflicts will appear before longer conflicts.
+Visibility
+This is a public facing endpoint.
+New/Existing
+This is a new endpoint.
+Query Parameters
+* start_time (DateTime): Defines the starting point in time for which the user’s conflicts should be retrieved.
+* end_time (DateTime): Defines the end point in time for which the user’s conflicts should be retrieved.
+* overflow (boolean, default false): Determines whether the retrieved user conflicts can overflow, i.e., whether or not the first user conflict’s start_time and the last user conflict’s end_times are clamped to the requested start_time and end_time.
+* Limit (number, default 25): The pagination limit value.
+* offset (number, default 0): The pagination offset value.
+Response Codes
+* 200 OK
+* 401 Unauthorized
+* 403 Forbidden
+* 404 Not Found
+Response Body Examples
+This endpoint returns a paginated response of user conflicts for the associated user:
+{
+  "user_schedule_conflicts": [
+    {
+      "id": UUIDv7,
+      "type": "user_schedule_conflict",
+      "schedule_id": ID,
+      "computed_shift_assignment_id": UUIDv7,
+      "user_unavailability_shift_id": UUIDv7,
+      "start_date": DateTime,
+      "end_date": DateTime,
+      "created_at": DateTime,
+      "updated_at": DateTime
+    }
+  ]
+  "limit": number,
+  "offset": number,
+  "more": boolean
+}
+GET /users/<user_id>/user_schedule_conflicts/<id>
+Description
+This endpoint retrieves a given user conflict.
+Visibility
+This is a public facing endpoint.
+New/Existing
+This is a new endpoint.
+Query Parameters
+This endpoint accepts no query parameters.
+Response Codes
+* 200 OK
+* 401 Unauthorized
+* 403 Forbidden
+* 404 Not Found
+Response Body Examples
+This endpoint returns the retrieved object using the standard representation of a user conflict.
+GET /schedules/<schedule_id>/user_schedule_conflicts
+Description
+This endpoint is used to search for user conflicts on a given schedule. The conflicts will be returned in ascending order sorted by start time. If two conflicts start at the same time, they will be ordered by end time in ascending order, meaning shorter conflicts will appear before longer unavailabilities.
+Visibility
+This is a public facing endpoint.
+New/Existing
+This is a new endpoint.
+Query Parameters
+* start_time (DateTime): Defines the starting point in time for which the schedule’s user conflicts should be retrieved.
+* end_time (DateTime): Defines the end point in time for which the schedule’s user conflicts should be retrieved.
+* overflow (boolean, default false): Determines whether the retrieved conflicts can overflow, i.e., whether or not the first conflicts’ start_times and the last conflicts’ end_times are clamped to the requested start_time and end_time.
+* Limit (number, default 25): The pagination limit value.
+* offset (number, default 0): The pagination offset value.
+Response Codes
+* 200 OK
+* 401 Unauthorized
+* 403 Forbidden
+* 404 Not Found
+Response Body Examples
+This endpoint returns a paginated response of user unavailabilities for the users on the associated schedule:
+{
+  "user_schedule_conflicts": [
+    {
+      "id": UUIDv7,
+      "type": "user_schedule_conflict",
+      "schedule_id": ID,
+      "computed_shift_assignment_id": UUIDv7,
+      "user_unavailability_shift_id": UUIDv7,
+      "start_date": DateTime,
+      "end_date": DateTime,
+      "created_at": DateTime,
+      "updated_at": DateTime
+    }
+  ]
+  "limit": number,
+  "offset": number,
+  "more": boolean
+}
+
+
+
+
+
+[a]@kchoate@pagerduty.com - Can we revisit this path since it's a deviation from Web and Mobile experiences? cc: @gphakos@pagerduty.com @csrinivas@pagerduty.com
+_Assigned to kchoate@pagerduty.com_
