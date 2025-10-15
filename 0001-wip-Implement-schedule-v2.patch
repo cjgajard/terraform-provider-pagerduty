@@ -1,0 +1,3263 @@
+From 4e4ce5e0ca4dac5d08f5993b2cefc3cc80fafe87 Mon Sep 17 00:00:00 2001
+From: Carlos Gajardo <cjavier@pagerduty.com>
+Date: Wed, 1 Oct 2025 10:53:48 -0300
+Subject: [PATCH] [wip] Implement schedule v2
+
+---
+ .../resource_pagerduty_schedule_v2_test.go    | 249 +++++
+ pagerdutyplugin/provider.go                   |   1 +
+ .../resource_pagerduty_schedule_v2.go         | 986 ++++++++++++++++++
+ ...esource_pagerduty_schedule_v2_mock_test.go | 525 ++++++++++
+ .../resource_pagerduty_schedule_v2_test.go    | 538 ++++++++++
+ ...esource_pagerduty_schedule_v2_unit_test.go | 407 ++++++++
+ .../PagerDuty/go-pagerduty/schedule.go        | 182 ++++
+ .../resource/schema/int64planmodifier/doc.go  |   5 +
+ .../int64planmodifier/requires_replace.go     |  30 +
+ .../int64planmodifier/requires_replace_if.go  |  73 ++
+ .../requires_replace_if_configured.go         |  34 +
+ .../requires_replace_if_func.go               |  25 +
+ .../use_state_for_unknown.go                  |  55 +
+ vendor/modules.txt                            |   4 +
+ 14 files changed, 3114 insertions(+)
+ create mode 100644 pagerduty/resource_pagerduty_schedule_v2_test.go
+ create mode 100644 pagerdutyplugin/resource_pagerduty_schedule_v2.go
+ create mode 100644 pagerdutyplugin/resource_pagerduty_schedule_v2_mock_test.go
+ create mode 100644 pagerdutyplugin/resource_pagerduty_schedule_v2_test.go
+ create mode 100644 pagerdutyplugin/resource_pagerduty_schedule_v2_unit_test.go
+ create mode 100644 vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/doc.go
+ create mode 100644 vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace.go
+ create mode 100644 vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if.go
+ create mode 100644 vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_configured.go
+ create mode 100644 vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_func.go
+ create mode 100644 vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/use_state_for_unknown.go
+
+diff --git a/pagerduty/resource_pagerduty_schedule_v2_test.go b/pagerduty/resource_pagerduty_schedule_v2_test.go
+new file mode 100644
+index 00000000..c1cd0bf2
+--- /dev/null
++++ b/pagerduty/resource_pagerduty_schedule_v2_test.go
+@@ -0,0 +1,249 @@
++package pagerduty
++
++import (
++	"fmt"
++	"testing"
++
++	"github.com/PagerDuty/go-pagerduty"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
++)
++
++func TestAccPagerDutyScheduleV2_Basic(t *testing.T) {
++	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email := fmt.Sprintf("%s@foo.test", username)
++	scheduleName := fmt.Sprintf("tf-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:     func() { testAccPreCheck(t) },
++		Providers:    testAccProviders,
++		CheckDestroy: testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2Config(username, email, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.foo"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "name", scheduleName),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "description", "Managed by Terraform"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "time_zone", "America/New_York"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.name", "Night Shift"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.assignment_strategy", "rotating_member_assignment_strategy"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.shifts_per_member", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.member.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.member.0.name", "Engineer On Call"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.member.0.color", "#FF5733"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.event.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.event.0.start_time", "2015-11-06T20:00:00-05:00"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.event.0.end_time", "2015-11-07T20:00:00-05:00"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.event.0.effective_since", "2015-11-06T20:00:00-05:00"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.event.0.recurrence.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.event.0.recurrence.0", "FREQ=DAILY"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.restriction.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.restriction.0.type", "daily_restriction"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.restriction.0.start_time_of_day", "08:00:00"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.restriction.0.duration_seconds", "32400"),
++				),
++			},
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigUpdated(username, email, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.foo"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "name", fmt.Sprintf("%s-updated", scheduleName)),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "description", "Updated by Terraform"),
++				),
++			},
++		},
++	})
++}
++
++func TestAccPagerDutyScheduleV2_EveryMemberStrategy(t *testing.T) {
++	username1 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	username2 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email1 := fmt.Sprintf("%s@foo.test", username1)
++	email2 := fmt.Sprintf("%s@foo.test", username2)
++	scheduleName := fmt.Sprintf("tf-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:     func() { testAccPreCheck(t) },
++		Providers:    testAccProviders,
++		CheckDestroy: testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigEveryMember(username1, username2, email1, email2, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.foo"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.assignment_strategy", "every_member_assignment_strategy"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.foo", "rotation.0.member.#", "2"),
++				),
++			},
++		},
++	})
++}
++
++func testAccCheckPagerDutyScheduleV2Destroy(s *terraform.State) error {
++	client, _ := testAccProvider.Meta().(*Config).Client()
++	for _, r := range s.RootModule().Resources {
++		if r.Type != "pagerduty_schedule_v2" {
++			continue
++		}
++
++		if _, err := client.GetFlexibleSchedule(r.Primary.ID, pagerduty.GetFlexibleScheduleOptions{}); err == nil {
++			return fmt.Errorf("Schedule still exists")
++		}
++	}
++	return nil
++}
++
++func testAccCheckPagerDutyScheduleV2Exists(n string) resource.TestCheckFunc {
++	return func(s *terraform.State) error {
++		rs, ok := s.RootModule().Resources[n]
++		if !ok {
++			return fmt.Errorf("Not found: %s", n)
++		}
++
++		if rs.Primary.ID == "" {
++			return fmt.Errorf("No Schedule ID is set")
++		}
++
++		client, _ := testAccProvider.Meta().(*Config).Client()
++
++		found, err := client.GetFlexibleSchedule(rs.Primary.ID, pagerduty.GetFlexibleScheduleOptions{})
++		if err != nil {
++			return err
++		}
++
++		if found.ID != rs.Primary.ID {
++			return fmt.Errorf("Schedule not found: %v - %v", rs.Primary.ID, found)
++		}
++
++		return nil
++	}
++}
++
++func testAccCheckPagerDutyScheduleV2Config(username, email, schedule string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "example" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "foo" {
++  name      = "%s"
++  time_zone = "America/New_York"
++
++  rotation {
++    name                = "Night Shift"
++    assignment_strategy = "rotating_member_assignment_strategy"
++    shifts_per_member   = 1
++
++    member {
++      user_id = pagerduty_user.example.id
++      name    = "Engineer On Call"
++      color   = "#FF5733"
++    }
++
++    event {
++      start_time        = "2015-11-06T20:00:00-05:00"
++      end_time          = "2015-11-07T20:00:00-05:00"
++      recurrence        = ["FREQ=DAILY"]
++      effective_since   = "2015-11-06T20:00:00-05:00"
++      assignment_strategy = "rotating_member_assignment_strategy"
++    }
++
++    restriction {
++      type              = "daily_restriction"
++      start_time_of_day = "08:00:00"
++      duration_seconds  = 32400
++    }
++  }
++}
++`, username, email, schedule)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigUpdated(username, email, schedule string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "example" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "foo" {
++  name        = "%s-updated"
++  description = "Updated by Terraform"
++  time_zone   = "America/New_York"
++
++  rotation {
++    name                = "Night Shift"
++    assignment_strategy = "rotating_member_assignment_strategy"
++    shifts_per_member   = 1
++
++    member {
++      user_id = pagerduty_user.example.id
++      name    = "Engineer On Call"
++      color   = "#FF5733"
++    }
++
++    event {
++      start_time        = "2015-11-06T20:00:00-05:00"
++      end_time          = "2015-11-07T20:00:00-05:00"
++      recurrence        = ["FREQ=DAILY"]
++      effective_since   = "2015-11-06T20:00:00-05:00"
++      assignment_strategy = "rotating_member_assignment_strategy"
++    }
++
++    restriction {
++      type              = "daily_restriction"
++      start_time_of_day = "08:00:00"
++      duration_seconds  = 32400
++    }
++  }
++}
++`, username, email, schedule)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigEveryMember(username1, username2, email1, email2, schedule string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "example1" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_user" "example2" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "foo" {
++  name      = "%s"
++  time_zone = "America/New_York"
++
++  rotation {
++    name                = "Weekday Shift"
++    assignment_strategy = "every_member_assignment_strategy"
++
++    member {
++      user_id = pagerduty_user.example1.id
++      name    = "sara"
++      color   = "yellow"
++    }
++
++    member {
++      user_id = pagerduty_user.example2.id
++      name    = "jill"
++      color   = "green"
++    }
++
++    event {
++      start_time        = "2025-07-14T08:00:00-05:00"
++      end_time          = "2025-07-18T17:00:00-05:00"
++      time_zone         = "America/Chicago"
++      recurrence        = ["RRULE:FREQ=WEEKLY"]
++      effective_since   = "2025-07-09T12:00:00-05:00"
++      assignment_strategy = "every_member_assignment_strategy"
++    }
++  }
++}
++`, username1, email1, username2, email2, schedule)
++}
+\ No newline at end of file
+diff --git a/pagerdutyplugin/provider.go b/pagerdutyplugin/provider.go
+index 8d65cd01..a4f77c6f 100644
+--- a/pagerdutyplugin/provider.go
++++ b/pagerdutyplugin/provider.go
+@@ -89,6 +89,7 @@ func (p *Provider) Resources(_ context.Context) [](func() resource.Resource) {
+ 		func() resource.Resource { return &resourceIncidentTypeCustomField{} },
+ 		func() resource.Resource { return &resourceIncidentType{} },
+ 		func() resource.Resource { return &resourceJiraCloudAccountMappingRule{} },
++		func() resource.Resource { return &resourceScheduleV2{} },
+ 		func() resource.Resource { return &ServiceCustomFieldResource{} },
+ 		func() resource.Resource { return &resourceServiceDependency{} },
+ 		func() resource.Resource { return &resourceTagAssignment{} },
+diff --git a/pagerdutyplugin/resource_pagerduty_schedule_v2.go b/pagerdutyplugin/resource_pagerduty_schedule_v2.go
+new file mode 100644
+index 00000000..d8c9bcea
+--- /dev/null
++++ b/pagerdutyplugin/resource_pagerduty_schedule_v2.go
+@@ -0,0 +1,986 @@
++package pagerduty
++
++import (
++	"context"
++	"fmt"
++	"log"
++	"time"
++
++	"github.com/PagerDuty/go-pagerduty"
++	"github.com/PagerDuty/terraform-provider-pagerduty/util"
++	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
++	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
++	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
++	"github.com/hashicorp/terraform-plugin-framework/diag"
++	"github.com/hashicorp/terraform-plugin-framework/path"
++	"github.com/hashicorp/terraform-plugin-framework/resource"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
++	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
++	"github.com/hashicorp/terraform-plugin-framework/types"
++	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
++)
++
++type resourceScheduleV2 struct{ client *pagerduty.Client }
++
++var (
++	_ resource.Resource                = (*resourceScheduleV2)(nil)
++	_ resource.ResourceWithConfigure   = (*resourceScheduleV2)(nil)
++	_ resource.ResourceWithImportState = (*resourceScheduleV2)(nil)
++)
++
++func (r *resourceScheduleV2) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
++	resp.TypeName = "pagerduty_schedule_v2"
++}
++
++func (r *resourceScheduleV2) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
++	resp.Schema = schema.Schema{
++		Attributes: map[string]schema.Attribute{
++			"id": schema.StringAttribute{
++				Computed:      true,
++				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
++			},
++			"name": schema.StringAttribute{
++				Required: true,
++			},
++			"description": schema.StringAttribute{
++				Optional:      true,
++				Computed:      true,
++				Default:       stringdefault.StaticString("Managed by Terraform"),
++				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
++			},
++			"time_zone": schema.StringAttribute{
++				Required:   true,
++				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
++			},
++			"teams": schema.SetAttribute{
++				Optional:    true,
++				ElementType: types.StringType,
++			},
++		},
++		Blocks: map[string]schema.Block{
++			"rotation": schema.ListNestedBlock{
++				Validators: []validator.List{listvalidator.SizeAtLeast(1)},
++				NestedObject: schema.NestedBlockObject{
++					Attributes: map[string]schema.Attribute{
++						"id": schema.StringAttribute{
++							Computed:      true,
++							PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
++						},
++						"name": schema.StringAttribute{
++							Required: true,
++						},
++						"start_time": schema.StringAttribute{
++							Optional: true,
++						},
++						"turn_length": schema.Int64Attribute{
++							Optional:   true,
++							Validators: []validator.Int64{int64validator.Between(3600, 365*24*3600)},
++						},
++						"assignment_strategy": schema.StringAttribute{
++							Required: true,
++							Validators: []validator.String{
++								stringvalidator.OneOf(
++									"every_member_assignment_strategy",
++									"rotating_member_assignment_strategy",
++								),
++							},
++						},
++						"shifts_per_member": schema.Int64Attribute{
++							Optional:      true,
++							Computed:      true,
++							Validators:    []validator.Int64{int64validator.AtLeast(1)},
++							PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
++						},
++					},
++					Blocks: map[string]schema.Block{
++						"member": schema.ListNestedBlock{
++							Validators: []validator.List{listvalidator.SizeAtLeast(1)},
++							NestedObject: schema.NestedBlockObject{
++								Attributes: map[string]schema.Attribute{
++									"user_id": schema.StringAttribute{
++										Required: true,
++									},
++									"name": schema.StringAttribute{
++										Optional: true,
++									},
++									"color": schema.StringAttribute{
++										Optional: true,
++									},
++								},
++							},
++						},
++						"event": schema.ListNestedBlock{
++							Validators: []validator.List{listvalidator.SizeAtLeast(1)},
++							NestedObject: schema.NestedBlockObject{
++								Attributes: map[string]schema.Attribute{
++									"id": schema.StringAttribute{
++										Computed:      true,
++										PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
++									},
++									"start_time": schema.StringAttribute{
++										Required: true,
++									},
++									"end_time": schema.StringAttribute{
++										Required: true,
++									},
++									"time_zone": schema.StringAttribute{
++										Optional: true,
++									},
++									"effective_since": schema.StringAttribute{
++										Required: true,
++									},
++									"effective_until": schema.StringAttribute{
++										Optional: true,
++									},
++									"recurrence": schema.ListAttribute{
++										Optional:    true,
++										ElementType: types.StringType,
++									},
++									"assignment_strategy": schema.StringAttribute{
++										Optional: true,
++										Validators: []validator.String{
++											stringvalidator.OneOf(
++												"every_member_assignment_strategy",
++												"rotating_member_assignment_strategy",
++											),
++										},
++									},
++								},
++							},
++						},
++						"restriction": schema.ListNestedBlock{
++							NestedObject: schema.NestedBlockObject{
++								Attributes: map[string]schema.Attribute{
++									"type": schema.StringAttribute{
++										Required: true,
++										Validators: []validator.String{
++											stringvalidator.OneOf(
++												"daily_restriction",
++												"weekly_restriction",
++											),
++										},
++									},
++									"start_time_of_day": schema.StringAttribute{
++										Required: true,
++									},
++									"start_day_of_week": schema.Int64Attribute{
++										Optional:   true,
++										Validators: []validator.Int64{int64validator.Between(0, 7)},
++									},
++									"duration_seconds": schema.Int64Attribute{
++										Required:   true,
++										Validators: []validator.Int64{int64validator.Between(1, 7*24*3600-1)},
++									},
++								},
++							},
++						},
++					},
++				},
++			},
++			"final_schedule": schema.ListNestedBlock{
++				NestedObject: schema.NestedBlockObject{
++					Attributes: map[string]schema.Attribute{
++						"rendered_coverage_percentage": schema.Float64Attribute{
++							Computed: true,
++						},
++					},
++					Blocks: map[string]schema.Block{
++						"computed_shift_assignment": schema.ListNestedBlock{
++							NestedObject: schema.NestedBlockObject{
++								Attributes: map[string]schema.Attribute{
++									"start_time": schema.StringAttribute{
++										Computed: true,
++									},
++									"end_time": schema.StringAttribute{
++										Computed: true,
++									},
++								},
++								Blocks: map[string]schema.Block{
++									"member": schema.ListNestedBlock{
++										NestedObject: schema.NestedBlockObject{
++											Attributes: map[string]schema.Attribute{
++												"type": schema.StringAttribute{
++													Computed: true,
++												},
++												"user_id": schema.StringAttribute{
++													Computed: true,
++												},
++												"name": schema.StringAttribute{
++													Computed: true,
++												},
++												"color": schema.StringAttribute{
++													Computed: true,
++												},
++											},
++										},
++									},
++									"source": schema.ListNestedBlock{
++										NestedObject: schema.NestedBlockObject{
++											Attributes: map[string]schema.Attribute{
++												"type": schema.StringAttribute{
++													Computed: true,
++												},
++												"rotation_id": schema.StringAttribute{
++													Computed: true,
++												},
++												"shift_id": schema.StringAttribute{
++													Computed: true,
++												},
++												"shift_assignment_id": schema.StringAttribute{
++													Computed: true,
++												},
++												"coverage_id": schema.StringAttribute{
++													Computed: true,
++												},
++											},
++										},
++									},
++								},
++							},
++						},
++					},
++				},
++			},
++		},
++	}
++}
++
++func (r *resourceScheduleV2) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
++	var model resourceScheduleV2Model
++
++	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	schedule, diags := buildFlexibleScheduleStruct(ctx, &model)
++	resp.Diagnostics.Append(diags...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	log.Printf("[INFO] Creating PagerDuty flexible schedule: %s", schedule.Name)
++
++	pdSchedule := pagerduty.FlexibleSchedule{
++		Name:        schedule.Name,
++		Description: schedule.Description,
++		TimeZone:    schedule.TimeZone,
++		Rotations:   convertRotationsToPD(schedule.Rotations),
++		Teams:       schedule.Teams,
++	}
++
++	var created *pagerduty.FlexibleSchedule
++	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
++		var err error
++		created, err = r.client.CreateFlexibleSchedule(pdSchedule)
++		if err != nil {
++			if util.IsBadRequestError(err) {
++				return retry.NonRetryableError(err)
++			}
++			return retry.RetryableError(err)
++		}
++		return nil
++	})
++	if err != nil {
++		resp.Diagnostics.AddError(
++			fmt.Sprintf("Error creating PagerDuty flexible schedule %s", schedule.Name),
++			err.Error(),
++		)
++		return
++	}
++
++	model.ID = types.StringValue(created.ID)
++
++	retryNotFound := true
++	state, err := fetchFlexibleScheduleWithContext(ctx, r.client, model.ID.ValueString(), retryNotFound)
++	if err != nil {
++		resp.Diagnostics.AddError(
++			fmt.Sprintf("Error reading PagerDuty flexible schedule %s", created.ID),
++			err.Error(),
++		)
++		return
++	}
++
++	model, diags = flattenScheduleV2(ctx, state)
++	resp.Diagnostics.Append(diags...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
++}
++
++func (r *resourceScheduleV2) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
++	var state resourceScheduleV2Model
++
++	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	log.Printf("[INFO] Reading PagerDuty flexible schedule: %s", state.ID.ValueString())
++
++	retryNotFound := false
++	schedule, err := fetchFlexibleScheduleWithContext(ctx, r.client, state.ID.ValueString(), retryNotFound)
++	if err != nil {
++		if util.IsNotFoundError(err) {
++			resp.State.RemoveResource(ctx)
++			return
++		}
++		resp.Diagnostics.AddError(
++			fmt.Sprintf("Error reading PagerDuty flexible schedule %s", state.ID.ValueString()),
++			err.Error(),
++		)
++		return
++	}
++
++	model, diags := flattenScheduleV2(ctx, schedule)
++	resp.Diagnostics.Append(diags...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
++}
++
++func (r *resourceScheduleV2) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
++	var model resourceScheduleV2Model
++
++	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	schedule, diags := buildFlexibleScheduleStruct(ctx, &model)
++	resp.Diagnostics.Append(diags...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	if model.ID.IsNull() || model.ID.IsUnknown() {
++		var id types.String
++		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
++		if resp.Diagnostics.HasError() {
++			return
++		}
++		model.ID = id
++	}
++
++	log.Printf("[INFO] Updating PagerDuty flexible schedule: %s", model.ID.ValueString())
++
++	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
++		pdSchedule := pagerduty.FlexibleSchedule{
++			Name:        schedule.Name,
++			Description: schedule.Description,
++			TimeZone:    schedule.TimeZone,
++			Rotations:   convertRotationsToPD(schedule.Rotations),
++			Teams:       schedule.Teams,
++		}
++
++		if _, err := r.client.UpdateFlexibleSchedule(model.ID.ValueString(), pdSchedule); err != nil {
++			if util.IsBadRequestError(err) {
++				return retry.NonRetryableError(err)
++			}
++			return retry.RetryableError(err)
++		}
++		return nil
++	})
++	if err != nil {
++		resp.Diagnostics.AddError(
++			fmt.Sprintf("Error updating PagerDuty flexible schedule %s", model.ID.ValueString()),
++			err.Error(),
++		)
++		return
++	}
++
++	retryNotFound := false
++	updated, err := fetchFlexibleScheduleWithContext(ctx, r.client, model.ID.ValueString(), retryNotFound)
++	if err != nil {
++		resp.Diagnostics.AddError(
++			fmt.Sprintf("Error reading PagerDuty flexible schedule after update %s", model.ID.ValueString()),
++			err.Error(),
++		)
++		return
++	}
++
++	model, diags = flattenScheduleV2(ctx, updated)
++	resp.Diagnostics.Append(diags...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
++}
++
++func (r *resourceScheduleV2) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
++	var id types.String
++
++	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("id"), &id)...)
++	if resp.Diagnostics.HasError() {
++		return
++	}
++
++	log.Printf("[INFO] Deleting PagerDuty flexible schedule: %s", id.ValueString())
++
++	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
++		if err := r.client.DeleteFlexibleSchedule(id.ValueString()); err != nil {
++			if util.IsNotFoundError(err) {
++				return retry.NonRetryableError(err)
++			}
++			return retry.RetryableError(err)
++		}
++		return nil
++	})
++	if err != nil && !util.IsNotFoundError(err) {
++		resp.Diagnostics.AddError(
++			fmt.Sprintf("Error deleting PagerDuty flexible schedule %s", id.ValueString()),
++			err.Error(),
++		)
++		return
++	}
++
++	resp.State.RemoveResource(ctx)
++}
++
++func (r *resourceScheduleV2) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
++	resp.Diagnostics.Append(ConfigurePagerdutyClient(&r.client, req.ProviderData)...)
++}
++
++func (r *resourceScheduleV2) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
++	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
++}
++
++// Model types
++type resourceScheduleV2Model struct {
++	ID            types.String         `tfsdk:"id"`
++	Name          types.String         `tfsdk:"name"`
++	Description   types.String         `tfsdk:"description"`
++	TimeZone      types.String         `tfsdk:"time_zone"`
++	Rotation      []rotationModel      `tfsdk:"rotation"`
++	Teams         types.Set            `tfsdk:"teams"`
++	FinalSchedule []finalScheduleModel `tfsdk:"final_schedule"`
++}
++
++type rotationModel struct {
++	ID                 types.String       `tfsdk:"id"`
++	Name               types.String       `tfsdk:"name"`
++	StartTime          types.String       `tfsdk:"start_time"`
++	TurnLength         types.Int64        `tfsdk:"turn_length"`
++	AssignmentStrategy types.String       `tfsdk:"assignment_strategy"`
++	ShiftsPerMember    types.Int64        `tfsdk:"shifts_per_member"`
++	Member             []memberModel      `tfsdk:"member"`
++	Event              []eventModel       `tfsdk:"event"`
++	Restriction        []restrictionModel `tfsdk:"restriction"`
++}
++
++type memberModel struct {
++	UserID types.String `tfsdk:"user_id"`
++	Name   types.String `tfsdk:"name"`
++	Color  types.String `tfsdk:"color"`
++}
++
++type eventModel struct {
++	ID                 types.String `tfsdk:"id"`
++	StartTime          types.String `tfsdk:"start_time"`
++	EndTime            types.String `tfsdk:"end_time"`
++	TimeZone           types.String `tfsdk:"time_zone"`
++	EffectiveSince     types.String `tfsdk:"effective_since"`
++	EffectiveUntil     types.String `tfsdk:"effective_until"`
++	Recurrence         types.List   `tfsdk:"recurrence"`
++	AssignmentStrategy types.String `tfsdk:"assignment_strategy"`
++}
++
++type restrictionModel struct {
++	Type            types.String `tfsdk:"type"`
++	StartTimeOfDay  types.String `tfsdk:"start_time_of_day"`
++	StartDayOfWeek  types.Int64  `tfsdk:"start_day_of_week"`
++	DurationSeconds types.Int64  `tfsdk:"duration_seconds"`
++}
++
++type finalScheduleModel struct {
++	RenderedCoveragePercentage types.Float64                  `tfsdk:"rendered_coverage_percentage"`
++	ComputedShiftAssignment    []computedShiftAssignmentModel `tfsdk:"computed_shift_assignment"`
++}
++
++type computedShiftAssignmentModel struct {
++	StartTime types.String                         `tfsdk:"start_time"`
++	EndTime   types.String                         `tfsdk:"end_time"`
++	Member    []shiftMemberModel                   `tfsdk:"member"`
++	Source    []computedShiftAssignmentSourceModel `tfsdk:"source"`
++}
++
++type shiftMemberModel struct {
++	Type   types.String `tfsdk:"type"`
++	UserID types.String `tfsdk:"user_id"`
++	Name   types.String `tfsdk:"name"`
++	Color  types.String `tfsdk:"color"`
++}
++
++type computedShiftAssignmentSourceModel struct {
++	Type              types.String `tfsdk:"type"`
++	RotationID        types.String `tfsdk:"rotation_id"`
++	ShiftID           types.String `tfsdk:"shift_id"`
++	ShiftAssignmentID types.String `tfsdk:"shift_assignment_id"`
++	CoverageID        types.String `tfsdk:"coverage_id"`
++}
++
++// Helper structs for API conversion
++type FlexibleSchedule struct {
++	ID            string
++	Type          string
++	Name          string
++	Description   string
++	TimeZone      string
++	Rotations     []*ScheduleRotation
++	FinalSchedule *FinalSchedule
++	Teams         []pagerduty.APIObject
++}
++
++type ScheduleRotation struct {
++	ID     string
++	Type   string
++	Name   string
++	Events []*ScheduleEvent
++}
++
++type ScheduleEvent struct {
++	ID                 string
++	Type               string
++	StartTime          *ZonedDateTime
++	EndTime            *ZonedDateTime
++	EffectiveSince     string
++	EffectiveUntil     *string
++	Recurrence         []string
++	AssignmentStrategy *AssignmentStrategy
++}
++
++type ZonedDateTime struct {
++	DateTime string
++	TimeZone string
++}
++
++type AssignmentStrategy struct {
++	Type            string
++	ShiftsPerMember int
++	Members         []*ShiftMember
++}
++
++type ShiftMember struct {
++	Type   string
++	UserID string
++	Name   string
++	Color  string
++}
++
++type FinalSchedule struct {
++	Type                       string
++	RenderedCoveragePercentage float64
++	ComputedShiftAssignments   []*ComputedShiftAssignment
++}
++
++type ComputedShiftAssignment struct {
++	Type      string
++	StartTime string
++	EndTime   string
++	Member    *ShiftMember
++	Source    *ComputedShiftAssignmentSource
++}
++
++type ComputedShiftAssignmentSource struct {
++	Type              string
++	RotationID        string
++	ShiftID           string
++	ShiftAssignmentID string
++	CoverageID        string
++}
++
++// Build functions
++func buildFlexibleScheduleStruct(ctx context.Context, model *resourceScheduleV2Model) (*FlexibleSchedule, diag.Diagnostics) {
++	var diags diag.Diagnostics
++
++	rotations, d := expandScheduleRotations(ctx, model.Rotation)
++	diags.Append(d...)
++	if diags.HasError() {
++		return nil, diags
++	}
++
++	schedule := &FlexibleSchedule{
++		Name:        model.Name.ValueString(),
++		Description: model.Description.ValueString(),
++		TimeZone:    model.TimeZone.ValueString(),
++		Rotations:   rotations,
++		Type:        "schedule",
++	}
++
++	if !model.Teams.IsNull() && !model.Teams.IsUnknown() {
++		var teams []string
++		diags.Append(model.Teams.ElementsAs(ctx, &teams, false)...)
++		if !diags.HasError() {
++			schedule.Teams = expandScheduleTeams(teams)
++		}
++	}
++
++	return schedule, diags
++}
++
++func expandScheduleRotations(ctx context.Context, rotations []rotationModel) ([]*ScheduleRotation, diag.Diagnostics) {
++	var diags diag.Diagnostics
++	var result []*ScheduleRotation
++
++	for _, rotation := range rotations {
++		scheduleRotation := &ScheduleRotation{
++			Name: rotation.Name.ValueString(),
++			Type: "schedule_rotation",
++		}
++
++		events, d := expandScheduleEvents(ctx, rotation.Event)
++		diags.Append(d...)
++		if diags.HasError() {
++			return nil, diags
++		}
++		scheduleRotation.Events = events
++
++		result = append(result, scheduleRotation)
++	}
++
++	return result, diags
++}
++
++func expandScheduleEvents(ctx context.Context, events []eventModel) ([]*ScheduleEvent, diag.Diagnostics) {
++	var diags diag.Diagnostics
++	var result []*ScheduleEvent
++
++	for _, event := range events {
++		scheduleEvent := &ScheduleEvent{
++			Type:           "schedule_event",
++			EffectiveSince: event.EffectiveSince.ValueString(),
++		}
++
++		if !event.StartTime.IsNull() && !event.StartTime.IsUnknown() {
++			scheduleEvent.StartTime = &ZonedDateTime{
++				DateTime: event.StartTime.ValueString(),
++			}
++			if !event.TimeZone.IsNull() && !event.TimeZone.IsUnknown() {
++				scheduleEvent.StartTime.TimeZone = event.TimeZone.ValueString()
++			}
++		}
++
++		if !event.EndTime.IsNull() && !event.EndTime.IsUnknown() {
++			scheduleEvent.EndTime = &ZonedDateTime{
++				DateTime: event.EndTime.ValueString(),
++			}
++			if !event.TimeZone.IsNull() && !event.TimeZone.IsUnknown() && scheduleEvent.StartTime != nil {
++				scheduleEvent.EndTime.TimeZone = event.TimeZone.ValueString()
++			}
++		}
++
++		if !event.EffectiveUntil.IsNull() && !event.EffectiveUntil.IsUnknown() {
++			until := event.EffectiveUntil.ValueString()
++			scheduleEvent.EffectiveUntil = &until
++		}
++
++		if !event.Recurrence.IsNull() && !event.Recurrence.IsUnknown() {
++			var recurrenceRules []string
++			diags.Append(event.Recurrence.ElementsAs(ctx, &recurrenceRules, false)...)
++			if !diags.HasError() {
++				scheduleEvent.Recurrence = recurrenceRules
++			}
++		}
++
++		if !event.AssignmentStrategy.IsNull() && !event.AssignmentStrategy.IsUnknown() {
++			scheduleEvent.AssignmentStrategy = &AssignmentStrategy{
++				Type: event.AssignmentStrategy.ValueString(),
++			}
++		}
++
++		result = append(result, scheduleEvent)
++	}
++
++	return result, diags
++}
++
++func expandScheduleTeams(teams []string) []pagerduty.APIObject {
++	var result []pagerduty.APIObject
++
++	for _, t := range teams {
++		team := pagerduty.APIObject{
++			ID:   t,
++			Type: "team_reference",
++		}
++		result = append(result, team)
++	}
++
++	return result
++}
++
++// Convert functions
++func convertRotationsToPD(rotations []*ScheduleRotation) []pagerduty.ScheduleRotation {
++	var pdRotations []pagerduty.ScheduleRotation
++
++	for _, rotation := range rotations {
++		pdRotation := pagerduty.ScheduleRotation{
++			APIObject: pagerduty.APIObject{
++				ID:   rotation.ID,
++				Type: rotation.Type,
++			},
++			Name:   rotation.Name,
++			Events: convertEventsToPD(rotation.Events),
++		}
++		pdRotations = append(pdRotations, pdRotation)
++	}
++
++	return pdRotations
++}
++
++func convertEventsToPD(events []*ScheduleEvent) []pagerduty.ScheduleEvent {
++	var pdEvents []pagerduty.ScheduleEvent
++
++	for _, event := range events {
++		pdEvent := pagerduty.ScheduleEvent{
++			APIObject: pagerduty.APIObject{
++				ID:   event.ID,
++				Type: event.Type,
++			},
++			EffectiveSince: event.EffectiveSince,
++			Recurrence:     event.Recurrence,
++		}
++
++		if event.StartTime != nil {
++			pdEvent.StartTime = &pagerduty.ZonedDateTime{
++				DateTime: event.StartTime.DateTime,
++				TimeZone: event.StartTime.TimeZone,
++			}
++		}
++
++		if event.EndTime != nil {
++			pdEvent.EndTime = &pagerduty.ZonedDateTime{
++				DateTime: event.EndTime.DateTime,
++				TimeZone: event.EndTime.TimeZone,
++			}
++		}
++
++		if event.EffectiveUntil != nil {
++			pdEvent.EffectiveUntil = event.EffectiveUntil
++		}
++
++		if event.AssignmentStrategy != nil {
++			pdEvent.AssignmentStrategy = &pagerduty.AssignmentStrategy{
++				Type:            event.AssignmentStrategy.Type,
++				ShiftsPerMember: event.AssignmentStrategy.ShiftsPerMember,
++				Members:         convertMembersToPD(event.AssignmentStrategy.Members),
++			}
++		}
++
++		pdEvents = append(pdEvents, pdEvent)
++	}
++
++	return pdEvents
++}
++
++func convertMembersToPD(members []*ShiftMember) []pagerduty.ShiftMember {
++	var pdMembers []pagerduty.ShiftMember
++
++	for _, member := range members {
++		pdMember := pagerduty.ShiftMember{
++			Type:   member.Type,
++			UserID: member.UserID,
++			Name:   member.Name,
++			Color:  member.Color,
++		}
++		pdMembers = append(pdMembers, pdMember)
++	}
++
++	return pdMembers
++}
++
++// Flatten functions
++func flattenScheduleV2(ctx context.Context, schedule *pagerduty.FlexibleSchedule) (resourceScheduleV2Model, diag.Diagnostics) {
++	var diags diag.Diagnostics
++
++	model := resourceScheduleV2Model{
++		ID:          types.StringValue(schedule.ID),
++		Name:        types.StringValue(schedule.Name),
++		Description: types.StringValue(schedule.Description),
++		TimeZone:    types.StringValue(schedule.TimeZone),
++	}
++
++	if len(schedule.Rotations) > 0 {
++		rotations, d := flattenScheduleRotations(ctx, schedule.Rotations)
++		diags.Append(d...)
++		model.Rotation = rotations
++	}
++
++	if len(schedule.Teams) > 0 {
++		teams := flattenScheduleTeams(schedule.Teams)
++		teamsSet, d := types.SetValueFrom(ctx, types.StringType, teams)
++		diags.Append(d...)
++		model.Teams = teamsSet
++	} else {
++		model.Teams = types.SetNull(types.StringType)
++	}
++
++	if schedule.FinalSchedule != nil {
++		finalSchedule := flattenFinalSchedule(ctx, schedule.FinalSchedule)
++		model.FinalSchedule = finalSchedule
++	}
++
++	return model, diags
++}
++
++func flattenScheduleRotations(ctx context.Context, rotations []pagerduty.ScheduleRotation) ([]rotationModel, diag.Diagnostics) {
++	var diags diag.Diagnostics
++	var result []rotationModel
++
++	for _, rotation := range rotations {
++		r := rotationModel{
++			ID:   types.StringValue(rotation.ID),
++			Name: types.StringValue(rotation.Name),
++		}
++
++		if len(rotation.Events) > 0 {
++			events, d := flattenScheduleEvents(ctx, rotation.Events)
++			diags.Append(d...)
++			r.Event = events
++		}
++
++		result = append(result, r)
++	}
++
++	return result, diags
++}
++
++func flattenScheduleEvents(ctx context.Context, events []pagerduty.ScheduleEvent) ([]eventModel, diag.Diagnostics) {
++	var diags diag.Diagnostics
++	var result []eventModel
++
++	for _, event := range events {
++		e := eventModel{
++			ID:             types.StringValue(event.ID),
++			EffectiveSince: types.StringValue(event.EffectiveSince),
++		}
++
++		if event.StartTime != nil {
++			e.StartTime = types.StringValue(event.StartTime.DateTime)
++			e.TimeZone = types.StringValue(event.StartTime.TimeZone)
++		}
++
++		if event.EndTime != nil {
++			e.EndTime = types.StringValue(event.EndTime.DateTime)
++			if e.TimeZone.IsNull() || e.TimeZone.ValueString() == "" {
++				e.TimeZone = types.StringValue(event.EndTime.TimeZone)
++			}
++		}
++
++		if event.EffectiveUntil != nil {
++			e.EffectiveUntil = types.StringValue(*event.EffectiveUntil)
++		}
++
++		if len(event.Recurrence) > 0 {
++			recurrenceList, d := types.ListValueFrom(ctx, types.StringType, event.Recurrence)
++			diags.Append(d...)
++			e.Recurrence = recurrenceList
++		} else {
++			e.Recurrence = types.ListNull(types.StringType)
++		}
++
++		if event.AssignmentStrategy != nil {
++			e.AssignmentStrategy = types.StringValue(event.AssignmentStrategy.Type)
++		}
++
++		result = append(result, e)
++	}
++
++	return result, diags
++}
++
++func flattenScheduleTeams(teams []pagerduty.APIObject) []string {
++	res := make([]string, len(teams))
++	for i, t := range teams {
++		res[i] = t.ID
++	}
++	return res
++}
++
++func flattenFinalSchedule(ctx context.Context, finalSchedule *pagerduty.FinalSchedule) []finalScheduleModel {
++	result := []finalScheduleModel{
++		{
++			RenderedCoveragePercentage: types.Float64Value(finalSchedule.RenderedCoveragePercentage),
++			ComputedShiftAssignment:    flattenComputedShiftAssignments(finalSchedule.ComputedShiftAssignments),
++		},
++	}
++	return result
++}
++
++func flattenComputedShiftAssignments(assignments []pagerduty.ComputedShiftAssignment) []computedShiftAssignmentModel {
++	var result []computedShiftAssignmentModel
++
++	for _, assignment := range assignments {
++		a := computedShiftAssignmentModel{
++			StartTime: types.StringValue(assignment.StartTime),
++			EndTime:   types.StringValue(assignment.EndTime),
++		}
++
++		if assignment.Member != nil {
++			a.Member = []shiftMemberModel{
++				{
++					Type:   types.StringValue(assignment.Member.Type),
++					UserID: types.StringValue(assignment.Member.UserID),
++					Name:   types.StringValue(assignment.Member.Name),
++					Color:  types.StringValue(assignment.Member.Color),
++				},
++			}
++		}
++
++		if assignment.Source != nil {
++			a.Source = []computedShiftAssignmentSourceModel{
++				{
++					Type:              types.StringValue(assignment.Source.Type),
++					RotationID:        types.StringValue(assignment.Source.RotationID),
++					ShiftID:           types.StringValue(assignment.Source.ShiftID),
++					ShiftAssignmentID: types.StringValue(assignment.Source.ShiftAssignmentID),
++					CoverageID:        types.StringValue(assignment.Source.CoverageID),
++				},
++			}
++		}
++
++		result = append(result, a)
++	}
++
++	return result
++}
++
++// Fetch function
++func fetchFlexibleScheduleWithContext(ctx context.Context, client *pagerduty.Client, id string, retryNotFound bool) (*pagerduty.FlexibleSchedule, error) {
++	var schedule *pagerduty.FlexibleSchedule
++
++	err := retry.RetryContext(ctx, 2*time.Minute, func() *retry.RetryError {
++		var err error
++		schedule, err = client.GetFlexibleSchedule(id, pagerduty.GetFlexibleScheduleOptions{})
++		if err != nil {
++			log.Printf("[WARN] Flexible schedule read error")
++			if util.IsBadRequestError(err) {
++				return retry.NonRetryableError(err)
++			}
++
++			if util.IsNotFoundError(err) {
++				if !retryNotFound {
++					return retry.NonRetryableError(err)
++				}
++				time.Sleep(2 * time.Second)
++				return retry.RetryableError(err)
++			}
++			return retry.RetryableError(err)
++		}
++		return nil
++	})
++
++	if err != nil {
++		return nil, err
++	}
++
++	return schedule, nil
++}
+diff --git a/pagerdutyplugin/resource_pagerduty_schedule_v2_mock_test.go b/pagerdutyplugin/resource_pagerduty_schedule_v2_mock_test.go
+new file mode 100644
+index 00000000..4287373a
+--- /dev/null
++++ b/pagerdutyplugin/resource_pagerduty_schedule_v2_mock_test.go
+@@ -0,0 +1,525 @@
++package pagerduty
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/PagerDuty/go-pagerduty"
++)
++
++// mockFlexibleScheduleServer creates a mock HTTP server that simulates the PagerDuty Flexible Schedule API
++type mockFlexibleScheduleServer struct {
++	server    *httptest.Server
++	schedules map[string]*pagerduty.FlexibleSchedule
++	mutex     sync.RWMutex
++	idCounter int
++}
++
++// newMockFlexibleScheduleServer creates a new mock server instance
++func newMockFlexibleScheduleServer() *mockFlexibleScheduleServer {
++	mock := &mockFlexibleScheduleServer{
++		schedules: make(map[string]*pagerduty.FlexibleSchedule),
++		idCounter: 1,
++	}
++
++	mock.server = httptest.NewServer(http.HandlerFunc(mock.handler))
++	return mock
++}
++
++// Close shuts down the mock server
++func (m *mockFlexibleScheduleServer) Close() {
++	m.server.Close()
++}
++
++// URL returns the mock server's URL
++func (m *mockFlexibleScheduleServer) URL() string {
++	return m.server.URL
++}
++
++// handler routes requests to the appropriate mock handler
++func (m *mockFlexibleScheduleServer) handler(w http.ResponseWriter, r *http.Request) {
++	w.Header().Set("Content-Type", "application/json")
++
++	// Route based on method and path
++	switch {
++	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/schedules"):
++		m.handleCreate(w, r)
++	case r.Method == "GET" && strings.Contains(r.URL.Path, "/schedules/"):
++		m.handleGet(w, r)
++	case r.Method == "PUT" && strings.Contains(r.URL.Path, "/schedules/"):
++		m.handleUpdate(w, r)
++	case r.Method == "DELETE" && strings.Contains(r.URL.Path, "/schedules/"):
++		m.handleDelete(w, r)
++	default:
++		w.WriteHeader(http.StatusNotFound)
++		json.NewEncoder(w).Encode(map[string]string{"error": "Not Found"})
++	}
++}
++
++// handleCreate handles POST /schedules
++func (m *mockFlexibleScheduleServer) handleCreate(w http.ResponseWriter, r *http.Request) {
++	var request struct {
++		Schedule pagerduty.FlexibleSchedule `json:"schedule"`
++	}
++
++	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
++		w.WriteHeader(http.StatusBadRequest)
++		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
++		return
++	}
++
++	m.mutex.Lock()
++	defer m.mutex.Unlock()
++
++	// Generate ID for the new schedule
++	scheduleID := fmt.Sprintf("P%d", m.idCounter)
++	m.idCounter++
++
++	schedule := request.Schedule
++	schedule.ID = scheduleID
++	schedule.Type = "schedule"
++
++	// Assign IDs to rotations and events
++	for i := range schedule.Rotations {
++		schedule.Rotations[i].ID = fmt.Sprintf("ROT%d%d", m.idCounter, i)
++		schedule.Rotations[i].Type = "schedule_rotation"
++
++		for j := range schedule.Rotations[i].Events {
++			schedule.Rotations[i].Events[j].ID = fmt.Sprintf("EVT%d%d%d", m.idCounter, i, j)
++			schedule.Rotations[i].Events[j].Type = "schedule_event"
++		}
++	}
++
++	// Generate mock final schedule
++	schedule.FinalSchedule = m.generateMockFinalSchedule(&schedule)
++
++	m.schedules[scheduleID] = &schedule
++
++	response := map[string]interface{}{
++		"schedule": schedule,
++	}
++
++	w.WriteHeader(http.StatusCreated)
++	json.NewEncoder(w).Encode(response)
++}
++
++// handleGet handles GET /schedules/{id}
++func (m *mockFlexibleScheduleServer) handleGet(w http.ResponseWriter, r *http.Request) {
++	// Extract schedule ID from path
++	parts := strings.Split(r.URL.Path, "/")
++	scheduleID := parts[len(parts)-1]
++
++	m.mutex.RLock()
++	schedule, exists := m.schedules[scheduleID]
++	m.mutex.RUnlock()
++
++	if !exists {
++		w.WriteHeader(http.StatusNotFound)
++		json.NewEncoder(w).Encode(map[string]string{"error": "Schedule not found"})
++		return
++	}
++
++	response := map[string]interface{}{
++		"schedule": schedule,
++	}
++
++	w.WriteHeader(http.StatusOK)
++	json.NewEncoder(w).Encode(response)
++}
++
++// handleUpdate handles PUT /schedules/{id}
++func (m *mockFlexibleScheduleServer) handleUpdate(w http.ResponseWriter, r *http.Request) {
++	// Extract schedule ID from path
++	parts := strings.Split(r.URL.Path, "/")
++	scheduleID := parts[len(parts)-1]
++
++	var request struct {
++		Schedule pagerduty.FlexibleSchedule `json:"schedule"`
++	}
++
++	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
++		w.WriteHeader(http.StatusBadRequest)
++		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
++		return
++	}
++
++	m.mutex.Lock()
++	defer m.mutex.Unlock()
++
++	existingSchedule, exists := m.schedules[scheduleID]
++	if !exists {
++		w.WriteHeader(http.StatusNotFound)
++		json.NewEncoder(w).Encode(map[string]string{"error": "Schedule not found"})
++		return
++	}
++
++	// Update the schedule, preserving ID and generated IDs
++	schedule := request.Schedule
++	schedule.ID = scheduleID
++	schedule.Type = "schedule"
++
++	// Preserve or assign rotation/event IDs
++	for i := range schedule.Rotations {
++		if i < len(existingSchedule.Rotations) {
++			schedule.Rotations[i].ID = existingSchedule.Rotations[i].ID
++		} else {
++			schedule.Rotations[i].ID = fmt.Sprintf("ROT%d%d", m.idCounter, i)
++		}
++		schedule.Rotations[i].Type = "schedule_rotation"
++
++		for j := range schedule.Rotations[i].Events {
++			if i < len(existingSchedule.Rotations) && j < len(existingSchedule.Rotations[i].Events) {
++				schedule.Rotations[i].Events[j].ID = existingSchedule.Rotations[i].Events[j].ID
++			} else {
++				schedule.Rotations[i].Events[j].ID = fmt.Sprintf("EVT%d%d%d", m.idCounter, i, j)
++			}
++			schedule.Rotations[i].Events[j].Type = "schedule_event"
++		}
++	}
++
++	// Regenerate final schedule
++	schedule.FinalSchedule = m.generateMockFinalSchedule(&schedule)
++
++	m.schedules[scheduleID] = &schedule
++
++	response := map[string]interface{}{
++		"schedule": schedule,
++	}
++
++	w.WriteHeader(http.StatusOK)
++	json.NewEncoder(w).Encode(response)
++}
++
++// handleDelete handles DELETE /schedules/{id}
++func (m *mockFlexibleScheduleServer) handleDelete(w http.ResponseWriter, r *http.Request) {
++	// Extract schedule ID from path
++	parts := strings.Split(r.URL.Path, "/")
++	scheduleID := parts[len(parts)-1]
++
++	m.mutex.Lock()
++	defer m.mutex.Unlock()
++
++	if _, exists := m.schedules[scheduleID]; !exists {
++		w.WriteHeader(http.StatusNotFound)
++		json.NewEncoder(w).Encode(map[string]string{"error": "Schedule not found"})
++		return
++	}
++
++	delete(m.schedules, scheduleID)
++
++	w.WriteHeader(http.StatusNoContent)
++}
++
++// generateMockFinalSchedule creates a mock final_schedule based on the flexible_schedule_response.json structure
++func (m *mockFlexibleScheduleServer) generateMockFinalSchedule(schedule *pagerduty.FlexibleSchedule) *pagerduty.FinalSchedule {
++	finalSchedule := &pagerduty.FinalSchedule{
++		Type:                       "final_schedule",
++		RenderedCoveragePercentage: 93.6, // Mock coverage percentage
++		ComputedShiftAssignments:   []pagerduty.ComputedShiftAssignment{},
++	}
++
++	// Generate mock shift assignments based on rotations
++	now := time.Now()
++	assignmentID := 1
++
++	for _, rotation := range schedule.Rotations {
++		for _, event := range rotation.Events {
++			if event.AssignmentStrategy == nil || len(event.AssignmentStrategy.Members) == 0 {
++				continue
++			}
++
++			// Create a few mock shift assignments for each event
++			for i := 0; i < 3; i++ {
++				memberIdx := i % len(event.AssignmentStrategy.Members)
++				member := event.AssignmentStrategy.Members[memberIdx]
++
++				assignment := pagerduty.ComputedShiftAssignment{
++					Type:      "computed_shift_assignment",
++					StartTime: now.Add(time.Duration(i*24) * time.Hour).Format(time.RFC3339),
++					EndTime:   now.Add(time.Duration((i+1)*24) * time.Hour).Format(time.RFC3339),
++					Member: &pagerduty.ShiftMember{
++						Type:   member.Type,
++						UserID: member.UserID,
++						Name:   member.Name,
++						Color:  member.Color,
++					},
++					Source: &pagerduty.ComputedShiftAssignmentSource{
++						Type:              "schedule_rotation_shift",
++						RotationID:        rotation.ID,
++						ShiftID:           fmt.Sprintf("SHIFT%d", assignmentID),
++						ShiftAssignmentID: fmt.Sprintf("ASSIGN%d", assignmentID),
++					},
++				}
++
++				finalSchedule.ComputedShiftAssignments = append(finalSchedule.ComputedShiftAssignments, assignment)
++				assignmentID++
++			}
++
++			// Only generate a few assignments to keep response reasonable
++			if len(finalSchedule.ComputedShiftAssignments) >= 10 {
++				break
++			}
++		}
++
++		if len(finalSchedule.ComputedShiftAssignments) >= 10 {
++			break
++		}
++	}
++
++	return finalSchedule
++}
++
++// generateMockScheduleFromJSON creates a mock schedule based on the flexible_schedule_response.json structure
++func generateMockScheduleFromJSON() *pagerduty.FlexibleSchedule {
++	return &pagerduty.FlexibleSchedule{
++		APIObject: pagerduty.APIObject{
++			ID:   "P65784",
++			Type: "schedule",
++		},
++		Name:        "Support Team Schedule",
++		Description: "Schedule for the support team covering weekdays and weekends.",
++		TimeZone:    "America/Chicago",
++		Rotations: []pagerduty.ScheduleRotation{
++			{
++				APIObject: pagerduty.APIObject{
++					ID:   "AGL7U3W2IR53BMSLIC2L7F7IQM",
++					Type: "schedule_rotation",
++				},
++				Name: "Week Days",
++				Events: []pagerduty.ScheduleEvent{
++					{
++						APIObject: pagerduty.APIObject{
++							ID:   "AGL7U3ZVM54URKAA4VBZ4USV3I",
++							Type: "schedule_event",
++						},
++						StartTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-14T08:00:00-05:00",
++							TimeZone: "America/Chicago",
++						},
++						EndTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-18T17:00:00-05:00",
++							TimeZone: "America/Chicago",
++						},
++						EffectiveSince: "2025-07-09T12:00:00-05:00",
++						EffectiveUntil: nil,
++						Recurrence:     []string{"RRULE:FREQ=WEEKLY"},
++						AssignmentStrategy: &pagerduty.AssignmentStrategy{
++							Type: "every_member_assignment_strategy",
++							Members: []pagerduty.ShiftMember{
++								{
++									Type:   "user_member",
++									UserID: "P01234",
++									Color:  "yellow",
++									Name:   "sara",
++								},
++								{
++									Type:   "user_member",
++									UserID: "P98765",
++									Color:  "green",
++									Name:   "jill",
++								},
++							},
++						},
++					},
++				},
++			},
++			{
++				APIObject: pagerduty.APIObject{
++					ID:   "AGL7U3W2IR53BMSLIC2L7F7IQN",
++					Type: "schedule_rotation",
++				},
++				Name: "Weekends",
++				Events: []pagerduty.ScheduleEvent{
++					{
++						APIObject: pagerduty.APIObject{
++							ID:   "AGL7U4CAENZMTHDYP6XUOLIFTQ",
++							Type: "schedule_event",
++						},
++						StartTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-18T17:00:00-05:00",
++							TimeZone: "America/Chicago",
++						},
++						EndTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-21T08:00:00-05:00",
++							TimeZone: "America/Chicago",
++						},
++						EffectiveSince: "2025-07-09T12:00:00-05:00",
++						EffectiveUntil: stringPtr("2025-08-01T12:00:00-05:00"),
++						Recurrence:     []string{"RRULE:FREQ=WEEKLY"},
++						AssignmentStrategy: &pagerduty.AssignmentStrategy{
++							Type:            "rotating_member_assignment_strategy",
++							ShiftsPerMember: 1,
++							Members: []pagerduty.ShiftMember{
++								{
++									Type:   "user_member",
++									UserID: "P98765",
++									Color:  "green",
++									Name:   "jill",
++								},
++								{
++									Type:   "user_member",
++									UserID: "P01234",
++									Color:  "yellow",
++									Name:   "sara",
++								},
++							},
++						},
++					},
++					{
++						APIObject: pagerduty.APIObject{
++							ID:   "AGL7U377EZ4EHAYRTQK5CES4DU",
++							Type: "schedule_event",
++						},
++						StartTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-18T17:00:00-05:00",
++							TimeZone: "America/Chicago",
++						},
++						EndTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-21T08:00:00-05:00",
++							TimeZone: "America/Chicago",
++						},
++						EffectiveSince: "2025-08-01T12:00:00-05:00",
++						EffectiveUntil: nil,
++						Recurrence:     []string{"RRULE:FREQ=WEEKLY"},
++						AssignmentStrategy: &pagerduty.AssignmentStrategy{
++							Type: "every_member_assignment_strategy",
++							Members: []pagerduty.ShiftMember{
++								{
++									Type:   "user_member",
++									UserID: "P99999",
++									Color:  "blue",
++									Name:   "bob",
++								},
++							},
++						},
++					},
++				},
++			},
++		},
++		FinalSchedule: &pagerduty.FinalSchedule{
++			Type:                       "final_schedule",
++			RenderedCoveragePercentage: 93.6,
++			ComputedShiftAssignments: []pagerduty.ComputedShiftAssignment{
++				{
++					Type:      "computed_shift_assignment",
++					StartTime: "2025-07-14T08:00:00-05:00",
++					EndTime:   "2025-07-14T17:00:00-05:00",
++					Member: &pagerduty.ShiftMember{
++						Type:   "user_member",
++						UserID: "P77777",
++						Color:  "purple",
++						Name:   "dan",
++					},
++					Source: &pagerduty.ComputedShiftAssignmentSource{
++						Type:              "schedule_rotation_shift_coverage",
++						ShiftID:           "AGL7U34AOV5LDNOUYOV74BB6CU",
++						RotationID:        "AGL7U3W2IR53BMSLIC2L7F7IQM",
++						ShiftAssignmentID: "AGL7VFUA7Z4WNABOOBBDJNOHRY",
++						CoverageID:        "AGL7VKTGVVYQDPOT6RKVCVT4UY",
++					},
++				},
++				{
++					Type:      "computed_shift_assignment",
++					StartTime: "2025-07-14T17:00:00-05:00",
++					EndTime:   "2025-07-15T08:00:00-05:00",
++					Member: &pagerduty.ShiftMember{
++						Type:   "user_member",
++						UserID: "P01234",
++						Color:  "yellow",
++						Name:   "sara",
++					},
++					Source: &pagerduty.ComputedShiftAssignmentSource{
++						Type:              "schedule_rotation_shift",
++						ShiftID:           "AGL7U34AOV5LDNOUYOV74BB6CU",
++						RotationID:        "AGL7U3W2IR53BMSLIC2L7F7IQM",
++						ShiftAssignmentID: "AGL7VFUA7Z4WNABOOBBDJNOHRY",
++					},
++				},
++				{
++					Type:      "computed_shift_assignment",
++					StartTime: "2025-07-18T17:00:00-05:00",
++					EndTime:   "2025-07-21T08:00:00-05:00",
++					Member: &pagerduty.ShiftMember{
++						Type:   "user_member",
++						UserID: "P98765",
++						Color:  "green",
++						Name:   "jill",
++					},
++					Source: &pagerduty.ComputedShiftAssignmentSource{
++						Type:              "schedule_rotation_shift",
++						ShiftID:           "AGL7U4EAFBYGJNLLXBJAA4QTUV",
++						RotationID:        "AGL7U3W2IR53BMSLIC2L7F7IQN",
++						ShiftAssignmentID: "AGL7VICVXR2BFP3JWLIODUX76Y",
++					},
++				},
++			},
++		},
++		Teams: []pagerduty.APIObject{},
++	}
++}
++
++// Helper function to create string pointer
++func stringPtr(s string) *string {
++	return &s
++}
++
++// MockScheduleTestCase represents a test case configuration for mock testing
++type MockScheduleTestCase struct {
++	Name            string
++	InitialSchedule *pagerduty.FlexibleSchedule
++	ExpectedError   bool
++	ValidateFunc    func(*pagerduty.FlexibleSchedule) error
++}
++
++// createMockScheduleForTest creates a simple mock schedule for testing
++func createMockScheduleForTest(name, timezone string, userID string) *pagerduty.FlexibleSchedule {
++	return &pagerduty.FlexibleSchedule{
++		APIObject: pagerduty.APIObject{
++			Type: "schedule",
++		},
++		Name:        name,
++		Description: "Test schedule",
++		TimeZone:    timezone,
++		Rotations: []pagerduty.ScheduleRotation{
++			{
++				APIObject: pagerduty.APIObject{
++					Type: "schedule_rotation",
++				},
++				Name: "Test Rotation",
++				Events: []pagerduty.ScheduleEvent{
++					{
++						APIObject: pagerduty.APIObject{
++							Type: "schedule_event",
++						},
++						StartTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-14T08:00:00-05:00",
++							TimeZone: timezone,
++						},
++						EndTime: &pagerduty.ZonedDateTime{
++							DateTime: "2025-07-18T17:00:00-05:00",
++							TimeZone: timezone,
++						},
++						EffectiveSince: "2025-07-09T12:00:00-05:00",
++						Recurrence:     []string{"RRULE:FREQ=WEEKLY"},
++						AssignmentStrategy: &pagerduty.AssignmentStrategy{
++							Type: "every_member_assignment_strategy",
++							Members: []pagerduty.ShiftMember{
++								{
++									Type:   "user_member",
++									UserID: userID,
++									Name:   "Test User",
++									Color:  "blue",
++								},
++							},
++						},
++					},
++				},
++			},
++		},
++	}
++}
+diff --git a/pagerdutyplugin/resource_pagerduty_schedule_v2_test.go b/pagerdutyplugin/resource_pagerduty_schedule_v2_test.go
+new file mode 100644
+index 00000000..a930638a
+--- /dev/null
++++ b/pagerdutyplugin/resource_pagerduty_schedule_v2_test.go
+@@ -0,0 +1,538 @@
++package pagerduty
++
++import (
++	"fmt"
++	"log"
++	"testing"
++
++	"github.com/PagerDuty/go-pagerduty"
++	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
++	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
++	"github.com/hashicorp/terraform-plugin-testing/terraform"
++)
++
++func init() {
++	resource.AddTestSweepers("pagerduty_schedule_v2", &resource.Sweeper{
++		Name: "pagerduty_schedule_v2",
++		F:    testSweepScheduleV2,
++	})
++}
++
++func testSweepScheduleV2(region string) error {
++	// Note: When the API is fully implemented, this will clean up test schedules
++	// For now, this is a placeholder that would list and delete test schedules
++
++	// Example implementation (commented out until API is ready):
++	// response, err := testAccProvider.client.ListFlexibleSchedules(ctx, pagerduty.ListFlexibleScheduleOptions{})
++	// if err != nil {
++	// 	return err
++	// }
++	//
++	// for _, schedule := range response.Schedules {
++	// 	if strings.HasPrefix(schedule.Name, "test") || strings.HasPrefix(schedule.Name, "tf-") {
++	// 		log.Printf("Destroying schedule %s (%s)", schedule.Name, schedule.ID)
++	// 		if err := testAccProvider.client.DeleteFlexibleSchedule(schedule.ID); err != nil {
++	// 			return err
++	// 		}
++	// 	}
++	// }
++
++	log.Printf("Schedule V2 sweep - API not fully implemented yet")
++	return nil
++}
++
++// TestAccPagerDutyScheduleV2_Basic tests the basic create, read, and update operations
++// for a flexible schedule using the every_member_assignment_strategy
++func TestAccPagerDutyScheduleV2_Basic(t *testing.T) {
++	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email := fmt.Sprintf("%s@foo.test", username)
++	scheduleName := fmt.Sprintf("tf-schedule-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:                 func() { testAccPreCheck(t) },
++		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
++		CheckDestroy:             testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigBasic(username, email, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "name", scheduleName),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "description", "Managed by Terraform"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "time_zone", "America/Chicago"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.name", "Week Days"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.assignment_strategy", "every_member_assignment_strategy"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.member.#", "1"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.event.#", "1"),
++					resource.TestCheckResourceAttrSet("pagerduty_schedule_v2.test", "id"),
++					resource.TestCheckResourceAttrSet("pagerduty_schedule_v2.test", "rotation.0.id"),
++					resource.TestCheckResourceAttrSet("pagerduty_schedule_v2.test", "rotation.0.event.0.id"),
++				),
++			},
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigUpdated(username, email, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "name", fmt.Sprintf("%s-updated", scheduleName)),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "description", "Updated by Terraform"),
++				),
++			},
++		},
++	})
++}
++
++// TestAccPagerDutyScheduleV2_MultipleRotations tests a schedule with multiple rotations
++// similar to the flexible_schedule_response.json example
++func TestAccPagerDutyScheduleV2_MultipleRotations(t *testing.T) {
++	username1 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	username2 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	username3 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email1 := fmt.Sprintf("%s@foo.test", username1)
++	email2 := fmt.Sprintf("%s@foo.test", username2)
++	email3 := fmt.Sprintf("%s@foo.test", username3)
++	scheduleName := fmt.Sprintf("tf-schedule-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:                 func() { testAccPreCheck(t) },
++		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
++		CheckDestroy:             testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigMultipleRotations(
++					username1, username2, username3,
++					email1, email2, email3,
++					scheduleName,
++				),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "name", scheduleName),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.#", "2"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.name", "Week Days"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.1.name", "Weekends"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.assignment_strategy", "every_member_assignment_strategy"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.1.assignment_strategy", "rotating_member_assignment_strategy"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.member.#", "2"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.1.member.#", "1"),
++				),
++			},
++		},
++	})
++}
++
++// TestAccPagerDutyScheduleV2_RotatingStrategy tests a schedule using rotating_member_assignment_strategy
++func TestAccPagerDutyScheduleV2_RotatingStrategy(t *testing.T) {
++	username1 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	username2 := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email1 := fmt.Sprintf("%s@foo.test", username1)
++	email2 := fmt.Sprintf("%s@foo.test", username2)
++	scheduleName := fmt.Sprintf("tf-schedule-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:                 func() { testAccPreCheck(t) },
++		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
++		CheckDestroy:             testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigRotatingStrategy(
++					username1, username2,
++					email1, email2,
++					scheduleName,
++				),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.assignment_strategy", "rotating_member_assignment_strategy"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.shifts_per_member", "2"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.member.#", "2"),
++				),
++			},
++		},
++	})
++}
++
++// TestAccPagerDutyScheduleV2_EffectiveUntil tests a schedule with effective_until date
++func TestAccPagerDutyScheduleV2_EffectiveUntil(t *testing.T) {
++	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email := fmt.Sprintf("%s@foo.test", username)
++	scheduleName := fmt.Sprintf("tf-schedule-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:                 func() { testAccPreCheck(t) },
++		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
++		CheckDestroy:             testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigEffectiveUntil(username, email, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "rotation.0.event.0.effective_until", "2025-12-31T23:59:59-05:00"),
++				),
++			},
++		},
++	})
++}
++
++// TestAccPagerDutyScheduleV2_WithTeams tests a schedule associated with teams
++func TestAccPagerDutyScheduleV2_WithTeams(t *testing.T) {
++	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email := fmt.Sprintf("%s@foo.test", username)
++	scheduleName := fmt.Sprintf("tf-schedule-%s", acctest.RandString(5))
++	teamName := fmt.Sprintf("tf-team-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:                 func() { testAccPreCheck(t) },
++		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
++		CheckDestroy:             testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigWithTeams(username, email, scheduleName, teamName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttr("pagerduty_schedule_v2.test", "teams.#", "1"),
++				),
++			},
++		},
++	})
++}
++
++// TestAccPagerDutyScheduleV2_FinalSchedule tests that final_schedule is computed correctly
++func TestAccPagerDutyScheduleV2_FinalSchedule(t *testing.T) {
++	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
++	email := fmt.Sprintf("%s@foo.test", username)
++	scheduleName := fmt.Sprintf("tf-schedule-%s", acctest.RandString(5))
++
++	resource.Test(t, resource.TestCase{
++		PreCheck:                 func() { testAccPreCheck(t) },
++		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
++		CheckDestroy:             testAccCheckPagerDutyScheduleV2Destroy,
++		Steps: []resource.TestStep{
++			{
++				Config: testAccCheckPagerDutyScheduleV2ConfigBasic(username, email, scheduleName),
++				Check: resource.ComposeTestCheckFunc(
++					testAccCheckPagerDutyScheduleV2Exists("pagerduty_schedule_v2.test"),
++					resource.TestCheckResourceAttrSet("pagerduty_schedule_v2.test", "final_schedule.0.rendered_coverage_percentage"),
++					resource.TestCheckResourceAttrSet("pagerduty_schedule_v2.test", "final_schedule.0.computed_shift_assignment.#"),
++				),
++			},
++		},
++	})
++}
++
++func testAccCheckPagerDutyScheduleV2Destroy(s *terraform.State) error {
++	for _, r := range s.RootModule().Resources {
++		if r.Type != "pagerduty_schedule_v2" {
++			continue
++		}
++
++		if _, err := testAccProvider.client.GetFlexibleSchedule(r.Primary.ID, pagerduty.GetFlexibleScheduleOptions{}); err == nil {
++			return fmt.Errorf("Flexible Schedule still exists")
++		}
++	}
++	return nil
++}
++
++func testAccCheckPagerDutyScheduleV2Exists(n string) resource.TestCheckFunc {
++	return func(s *terraform.State) error {
++		rs, ok := s.RootModule().Resources[n]
++		if !ok {
++			return fmt.Errorf("Not found: %s", n)
++		}
++
++		if rs.Primary.ID == "" {
++			return fmt.Errorf("No Flexible Schedule ID is set")
++		}
++
++		found, err := testAccProvider.client.GetFlexibleSchedule(rs.Primary.ID, pagerduty.GetFlexibleScheduleOptions{})
++		if err != nil {
++			return err
++		}
++
++		if found.ID != rs.Primary.ID {
++			return fmt.Errorf("Flexible Schedule not found: %v - %v", rs.Primary.ID, found)
++		}
++
++		return nil
++	}
++}
++
++func testAccExternallyDestroyScheduleV2(n string) resource.TestCheckFunc {
++	return func(s *terraform.State) error {
++		rs, ok := s.RootModule().Resources[n]
++		if !ok {
++			return fmt.Errorf("Not found: %s", n)
++		}
++
++		if rs.Primary.ID == "" {
++			return fmt.Errorf("No Flexible Schedule ID is set")
++		}
++
++		if err := testAccProvider.client.DeleteFlexibleSchedule(rs.Primary.ID); err != nil {
++			return err
++		}
++
++		return nil
++	}
++}
++
++// Configuration templates
++
++func testAccCheckPagerDutyScheduleV2ConfigBasic(username, email, scheduleName string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "test" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "test" {
++  name      = "%s"
++  time_zone = "America/Chicago"
++
++  rotation {
++    name                = "Week Days"
++    assignment_strategy = "every_member_assignment_strategy"
++
++    member {
++      user_id = pagerduty_user.test.id
++      name    = "sara"
++      color   = "yellow"
++    }
++
++    event {
++      start_time      = "2025-07-14T08:00:00-05:00"
++      end_time        = "2025-07-18T17:00:00-05:00"
++      time_zone       = "America/Chicago"
++      effective_since = "2025-07-09T12:00:00-05:00"
++      recurrence      = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "every_member_assignment_strategy"
++    }
++  }
++}
++`, username, email, scheduleName)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigUpdated(username, email, scheduleName string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "test" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "test" {
++  name        = "%s-updated"
++  description = "Updated by Terraform"
++  time_zone   = "America/Chicago"
++
++  rotation {
++    name                = "Week Days"
++    assignment_strategy = "every_member_assignment_strategy"
++
++    member {
++      user_id = pagerduty_user.test.id
++      name    = "sara"
++      color   = "yellow"
++    }
++
++    event {
++      start_time      = "2025-07-14T08:00:00-05:00"
++      end_time        = "2025-07-18T17:00:00-05:00"
++      time_zone       = "America/Chicago"
++      effective_since = "2025-07-09T12:00:00-05:00"
++      recurrence      = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "every_member_assignment_strategy"
++    }
++  }
++}
++`, username, email, scheduleName)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigMultipleRotations(user1, user2, user3, email1, email2, email3, scheduleName string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "test1" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_user" "test2" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_user" "test3" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "test" {
++  name        = "%s"
++  description = "Support Team Schedule covering weekdays and weekends"
++  time_zone   = "America/Chicago"
++
++  rotation {
++    name                = "Week Days"
++    assignment_strategy = "every_member_assignment_strategy"
++
++    member {
++      user_id = pagerduty_user.test1.id
++      name    = "sara"
++      color   = "yellow"
++    }
++
++    member {
++      user_id = pagerduty_user.test2.id
++      name    = "jill"
++      color   = "green"
++    }
++
++    event {
++      start_time      = "2025-07-14T08:00:00-05:00"
++      end_time        = "2025-07-18T17:00:00-05:00"
++      time_zone       = "America/Chicago"
++      effective_since = "2025-07-09T12:00:00-05:00"
++      recurrence      = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "every_member_assignment_strategy"
++    }
++  }
++
++  rotation {
++    name                = "Weekends"
++    assignment_strategy = "rotating_member_assignment_strategy"
++    shifts_per_member   = 1
++
++    member {
++      user_id = pagerduty_user.test3.id
++      name    = "bob"
++      color   = "blue"
++    }
++
++    event {
++      start_time      = "2025-07-18T17:00:00-05:00"
++      end_time        = "2025-07-21T08:00:00-05:00"
++      time_zone       = "America/Chicago"
++      effective_since = "2025-07-09T12:00:00-05:00"
++      recurrence      = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "rotating_member_assignment_strategy"
++    }
++  }
++}
++`, user1, email1, user2, email2, user3, email3, scheduleName)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigRotatingStrategy(user1, user2, email1, email2, scheduleName string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "test1" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_user" "test2" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "test" {
++  name      = "%s"
++  time_zone = "America/Chicago"
++
++  rotation {
++    name                = "Rotating Shift"
++    assignment_strategy = "rotating_member_assignment_strategy"
++    shifts_per_member   = 2
++
++    member {
++      user_id = pagerduty_user.test1.id
++      name    = "jill"
++      color   = "green"
++    }
++
++    member {
++      user_id = pagerduty_user.test2.id
++      name    = "sara"
++      color   = "yellow"
++    }
++
++    event {
++      start_time      = "2025-07-18T17:00:00-05:00"
++      end_time        = "2025-07-21T08:00:00-05:00"
++      time_zone       = "America/Chicago"
++      effective_since = "2025-07-09T12:00:00-05:00"
++      recurrence      = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "rotating_member_assignment_strategy"
++    }
++  }
++}
++`, user1, email1, user2, email2, scheduleName)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigEffectiveUntil(username, email, scheduleName string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "test" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_schedule_v2" "test" {
++  name      = "%s"
++  time_zone = "America/Chicago"
++
++  rotation {
++    name                = "Limited Time Rotation"
++    assignment_strategy = "every_member_assignment_strategy"
++
++    member {
++      user_id = pagerduty_user.test.id
++      name    = "jill"
++      color   = "green"
++    }
++
++    event {
++      start_time       = "2025-07-18T17:00:00-05:00"
++      end_time         = "2025-07-21T08:00:00-05:00"
++      time_zone        = "America/Chicago"
++      effective_since  = "2025-07-09T12:00:00-05:00"
++      effective_until  = "2025-12-31T23:59:59-05:00"
++      recurrence       = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "every_member_assignment_strategy"
++    }
++  }
++}
++`, username, email, scheduleName)
++}
++
++func testAccCheckPagerDutyScheduleV2ConfigWithTeams(username, email, scheduleName, teamName string) string {
++	return fmt.Sprintf(`
++resource "pagerduty_user" "test" {
++  name  = "%s"
++  email = "%s"
++}
++
++resource "pagerduty_team" "test" {
++  name = "%s"
++}
++
++resource "pagerduty_schedule_v2" "test" {
++  name      = "%s"
++  time_zone = "America/Chicago"
++  teams     = [pagerduty_team.test.id]
++
++  rotation {
++    name                = "Week Days"
++    assignment_strategy = "every_member_assignment_strategy"
++
++    member {
++      user_id = pagerduty_user.test.id
++      name    = "sara"
++      color   = "yellow"
++    }
++
++    event {
++      start_time      = "2025-07-14T08:00:00-05:00"
++      end_time        = "2025-07-18T17:00:00-05:00"
++      time_zone       = "America/Chicago"
++      effective_since = "2025-07-09T12:00:00-05:00"
++      recurrence      = ["RRULE:FREQ=WEEKLY"]
++      assignment_strategy = "every_member_assignment_strategy"
++    }
++  }
++}
++`, username, email, teamName, scheduleName)
++}
+diff --git a/pagerdutyplugin/resource_pagerduty_schedule_v2_unit_test.go b/pagerdutyplugin/resource_pagerduty_schedule_v2_unit_test.go
+new file mode 100644
+index 00000000..36a33ee0
+--- /dev/null
++++ b/pagerdutyplugin/resource_pagerduty_schedule_v2_unit_test.go
+@@ -0,0 +1,407 @@
++package pagerduty
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"strings"
++	"testing"
++
++	"github.com/PagerDuty/go-pagerduty"
++)
++
++// TestMockFlexibleScheduleServer_Create tests the mock server's create functionality
++func TestMockFlexibleScheduleServer_Create(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	schedule := createMockScheduleForTest("Test Schedule", "America/Chicago", "PUSERID1")
++
++	// Create request
++	reqBody := map[string]interface{}{
++		"schedule": schedule,
++	}
++	reqJSON, _ := json.Marshal(reqBody)
++
++	resp, err := http.Post(
++		fmt.Sprintf("%s/schedules", mock.URL()),
++		"application/json",
++		strings.NewReader(string(reqJSON)),
++	)
++	if err != nil {
++		t.Fatalf("Failed to create schedule: %v", err)
++	}
++	defer resp.Body.Close()
++
++	if resp.StatusCode != http.StatusCreated {
++		t.Errorf("Expected status %d, got %d", http.StatusCreated, resp.StatusCode)
++	}
++
++	var response map[string]*pagerduty.FlexibleSchedule
++	err = json.NewDecoder(resp.Body).Decode(&response)
++	if err != nil {
++		t.Fatalf("Failed to decode response: %v", err)
++	}
++
++	created := response["schedule"]
++	if created.ID == "" {
++		t.Error("Expected schedule ID to be set")
++	}
++	if created.Name != "Test Schedule" {
++		t.Errorf("Expected name 'Test Schedule', got '%s'", created.Name)
++	}
++	if created.TimeZone != "America/Chicago" {
++		t.Errorf("Expected timezone 'America/Chicago', got '%s'", created.TimeZone)
++	}
++	if created.FinalSchedule == nil {
++		t.Error("Expected final_schedule to be set")
++	}
++	if len(created.Rotations) != 1 {
++		t.Errorf("Expected 1 rotation, got %d", len(created.Rotations))
++	}
++	if created.Rotations[0].ID == "" {
++		t.Error("Expected rotation ID to be set")
++	}
++	if created.Rotations[0].Events[0].ID == "" {
++		t.Error("Expected event ID to be set")
++	}
++}
++
++// TestMockFlexibleScheduleServer_Get tests the mock server's get functionality
++func TestMockFlexibleScheduleServer_Get(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	// First create a schedule
++	schedule := createMockScheduleForTest("Test Schedule", "America/Chicago", "PUSERID1")
++	reqBody := map[string]interface{}{
++		"schedule": schedule,
++	}
++	reqJSON, _ := json.Marshal(reqBody)
++
++	createResp, err := http.Post(
++		fmt.Sprintf("%s/schedules", mock.URL()),
++		"application/json",
++		strings.NewReader(string(reqJSON)),
++	)
++	if err != nil {
++		t.Fatalf("Failed to create schedule: %v", err)
++	}
++	defer createResp.Body.Close()
++
++	var createResponse map[string]*pagerduty.FlexibleSchedule
++	json.NewDecoder(createResp.Body).Decode(&createResponse)
++	scheduleID := createResponse["schedule"].ID
++
++	// Now get the schedule
++	getResp, err := http.Get(fmt.Sprintf("%s/schedules/%s", mock.URL(), scheduleID))
++	if err != nil {
++		t.Fatalf("Failed to get schedule: %v", err)
++	}
++	defer getResp.Body.Close()
++
++	if getResp.StatusCode != http.StatusOK {
++		t.Errorf("Expected status %d, got %d", http.StatusOK, getResp.StatusCode)
++	}
++
++	var getResponse map[string]*pagerduty.FlexibleSchedule
++	err = json.NewDecoder(getResp.Body).Decode(&getResponse)
++	if err != nil {
++		t.Fatalf("Failed to decode response: %v", err)
++	}
++
++	retrieved := getResponse["schedule"]
++	if retrieved.ID != scheduleID {
++		t.Errorf("Expected ID '%s', got '%s'", scheduleID, retrieved.ID)
++	}
++	if retrieved.Name != "Test Schedule" {
++		t.Errorf("Expected name 'Test Schedule', got '%s'", retrieved.Name)
++	}
++}
++
++// TestMockFlexibleScheduleServer_Update tests the mock server's update functionality
++func TestMockFlexibleScheduleServer_Update(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	// Create initial schedule
++	schedule := createMockScheduleForTest("Test Schedule", "America/Chicago", "PUSERID1")
++	reqBody := map[string]interface{}{
++		"schedule": schedule,
++	}
++	reqJSON, _ := json.Marshal(reqBody)
++
++	createResp, err := http.Post(
++		fmt.Sprintf("%s/schedules", mock.URL()),
++		"application/json",
++		strings.NewReader(string(reqJSON)),
++	)
++	if err != nil {
++		t.Fatalf("Failed to create schedule: %v", err)
++	}
++	defer createResp.Body.Close()
++
++	var createResponse map[string]*pagerduty.FlexibleSchedule
++	json.NewDecoder(createResp.Body).Decode(&createResponse)
++	scheduleID := createResponse["schedule"].ID
++
++	// Update the schedule
++	schedule.Name = "Updated Schedule"
++	schedule.Description = "Updated description"
++	updateReqBody := map[string]interface{}{
++		"schedule": schedule,
++	}
++	updateReqJSON, _ := json.Marshal(updateReqBody)
++
++	client := &http.Client{}
++	req, _ := http.NewRequest(
++		"PUT",
++		fmt.Sprintf("%s/schedules/%s", mock.URL(), scheduleID),
++		strings.NewReader(string(updateReqJSON)),
++	)
++	req.Header.Set("Content-Type", "application/json")
++
++	updateResp, err := client.Do(req)
++	if err != nil {
++		t.Fatalf("Failed to update schedule: %v", err)
++	}
++	defer updateResp.Body.Close()
++
++	if updateResp.StatusCode != http.StatusOK {
++		t.Errorf("Expected status %d, got %d", http.StatusOK, updateResp.StatusCode)
++	}
++
++	var updateResponse map[string]*pagerduty.FlexibleSchedule
++	err = json.NewDecoder(updateResp.Body).Decode(&updateResponse)
++	if err != nil {
++		t.Fatalf("Failed to decode response: %v", err)
++	}
++
++	updated := updateResponse["schedule"]
++	if updated.ID != scheduleID {
++		t.Errorf("Expected ID '%s', got '%s'", scheduleID, updated.ID)
++	}
++	if updated.Name != "Updated Schedule" {
++		t.Errorf("Expected name 'Updated Schedule', got '%s'", updated.Name)
++	}
++	if updated.Description != "Updated description" {
++		t.Errorf("Expected description 'Updated description', got '%s'", updated.Description)
++	}
++}
++
++// TestMockFlexibleScheduleServer_Delete tests the mock server's delete functionality
++func TestMockFlexibleScheduleServer_Delete(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	// Create a schedule
++	schedule := createMockScheduleForTest("Test Schedule", "America/Chicago", "PUSERID1")
++	reqBody := map[string]interface{}{
++		"schedule": schedule,
++	}
++	reqJSON, _ := json.Marshal(reqBody)
++
++	createResp, err := http.Post(
++		fmt.Sprintf("%s/schedules", mock.URL()),
++		"application/json",
++		strings.NewReader(string(reqJSON)),
++	)
++	if err != nil {
++		t.Fatalf("Failed to create schedule: %v", err)
++	}
++	defer createResp.Body.Close()
++
++	var createResponse map[string]*pagerduty.FlexibleSchedule
++	json.NewDecoder(createResp.Body).Decode(&createResponse)
++	scheduleID := createResponse["schedule"].ID
++
++	// Delete the schedule
++	client := &http.Client{}
++	req, _ := http.NewRequest(
++		"DELETE",
++		fmt.Sprintf("%s/schedules/%s", mock.URL(), scheduleID),
++		nil,
++	)
++
++	deleteResp, err := client.Do(req)
++	if err != nil {
++		t.Fatalf("Failed to delete schedule: %v", err)
++	}
++	defer deleteResp.Body.Close()
++
++	if deleteResp.StatusCode != http.StatusNoContent {
++		t.Errorf("Expected status %d, got %d", http.StatusNoContent, deleteResp.StatusCode)
++	}
++
++	// Verify schedule is deleted
++	getResp, err := http.Get(fmt.Sprintf("%s/schedules/%s", mock.URL(), scheduleID))
++	if err != nil {
++		t.Fatalf("Failed to get schedule: %v", err)
++	}
++	defer getResp.Body.Close()
++
++	if getResp.StatusCode != http.StatusNotFound {
++		t.Errorf("Expected status %d for deleted schedule, got %d", http.StatusNotFound, getResp.StatusCode)
++	}
++}
++
++// TestMockFlexibleScheduleServer_GetNotFound tests 404 handling
++func TestMockFlexibleScheduleServer_GetNotFound(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	resp, err := http.Get(fmt.Sprintf("%s/schedules/NONEXISTENT", mock.URL()))
++	if err != nil {
++		t.Fatalf("Request failed: %v", err)
++	}
++	defer resp.Body.Close()
++
++	if resp.StatusCode != http.StatusNotFound {
++		t.Errorf("Expected status %d, got %d", http.StatusNotFound, resp.StatusCode)
++	}
++}
++
++// TestGenerateMockScheduleFromJSON tests the JSON-based mock schedule generator
++func TestGenerateMockScheduleFromJSON(t *testing.T) {
++	schedule := generateMockScheduleFromJSON()
++
++	if schedule.ID != "P65784" {
++		t.Errorf("Expected ID 'P65784', got '%s'", schedule.ID)
++	}
++	if schedule.Name != "Support Team Schedule" {
++		t.Errorf("Expected name 'Support Team Schedule', got '%s'", schedule.Name)
++	}
++	if schedule.TimeZone != "America/Chicago" {
++		t.Errorf("Expected timezone 'America/Chicago', got '%s'", schedule.TimeZone)
++	}
++	if len(schedule.Rotations) != 2 {
++		t.Errorf("Expected 2 rotations, got %d", len(schedule.Rotations))
++	}
++
++	// Check first rotation
++	weekdays := schedule.Rotations[0]
++	if weekdays.Name != "Week Days" {
++		t.Errorf("Expected rotation name 'Week Days', got '%s'", weekdays.Name)
++	}
++	if len(weekdays.Events) != 1 {
++		t.Errorf("Expected 1 event, got %d", len(weekdays.Events))
++	}
++	if weekdays.Events[0].AssignmentStrategy.Type != "every_member_assignment_strategy" {
++		t.Errorf("Expected assignment strategy 'every_member_assignment_strategy', got '%s'",
++			weekdays.Events[0].AssignmentStrategy.Type)
++	}
++	if len(weekdays.Events[0].AssignmentStrategy.Members) != 2 {
++		t.Errorf("Expected 2 members, got %d", len(weekdays.Events[0].AssignmentStrategy.Members))
++	}
++
++	// Check second rotation
++	weekends := schedule.Rotations[1]
++	if weekends.Name != "Weekends" {
++		t.Errorf("Expected rotation name 'Weekends', got '%s'", weekends.Name)
++	}
++	if len(weekends.Events) != 2 {
++		t.Errorf("Expected 2 events, got %d", len(weekends.Events))
++	}
++	if weekends.Events[0].AssignmentStrategy.Type != "rotating_member_assignment_strategy" {
++		t.Errorf("Expected assignment strategy 'rotating_member_assignment_strategy', got '%s'",
++			weekends.Events[0].AssignmentStrategy.Type)
++	}
++	if weekends.Events[0].AssignmentStrategy.ShiftsPerMember != 1 {
++		t.Errorf("Expected shifts_per_member 1, got %d", weekends.Events[0].AssignmentStrategy.ShiftsPerMember)
++	}
++
++	// Check final schedule
++	if schedule.FinalSchedule == nil {
++		t.Fatal("Expected final_schedule to be set")
++	}
++	if schedule.FinalSchedule.RenderedCoveragePercentage != 93.6 {
++		t.Errorf("Expected coverage 93.6, got %.1f", schedule.FinalSchedule.RenderedCoveragePercentage)
++	}
++	if len(schedule.FinalSchedule.ComputedShiftAssignments) == 0 {
++		t.Error("Expected computed shift assignments to be set")
++	}
++}
++
++// TestMockFlexibleScheduleServer_FinalScheduleGeneration tests that final_schedule is generated
++func TestMockFlexibleScheduleServer_FinalScheduleGeneration(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	schedule := createMockScheduleForTest("Test Schedule", "America/Chicago", "PUSERID1")
++
++	reqBody := map[string]interface{}{"schedule": schedule}
++	reqJSON, _ := json.Marshal(reqBody)
++
++	resp, err := http.Post(
++		fmt.Sprintf("%s/schedules", mock.URL()),
++		"application/json",
++		strings.NewReader(string(reqJSON)),
++	)
++	if err != nil {
++		t.Fatalf("Failed to create schedule: %v", err)
++	}
++	defer resp.Body.Close()
++
++	var response map[string]*pagerduty.FlexibleSchedule
++	err = json.NewDecoder(resp.Body).Decode(&response)
++	if err != nil {
++		t.Fatalf("Failed to decode response: %v", err)
++	}
++
++	created := response["schedule"]
++	if created.FinalSchedule == nil {
++		t.Fatal("Expected final_schedule to be set")
++	}
++	if created.FinalSchedule.Type != "final_schedule" {
++		t.Errorf("Expected type 'final_schedule', got '%s'", created.FinalSchedule.Type)
++	}
++	if created.FinalSchedule.RenderedCoveragePercentage != 93.6 {
++		t.Errorf("Expected coverage 93.6, got %.1f", created.FinalSchedule.RenderedCoveragePercentage)
++	}
++	if len(created.FinalSchedule.ComputedShiftAssignments) == 0 {
++		t.Error("Expected computed shift assignments to be set")
++	}
++
++	// Check that computed shift assignments have the expected structure
++	if len(created.FinalSchedule.ComputedShiftAssignments) > 0 {
++		assignment := created.FinalSchedule.ComputedShiftAssignments[0]
++		if assignment.Type != "computed_shift_assignment" {
++			t.Errorf("Expected assignment type 'computed_shift_assignment', got '%s'", assignment.Type)
++		}
++		if assignment.StartTime == "" {
++			t.Error("Expected start_time to be set")
++		}
++		if assignment.EndTime == "" {
++			t.Error("Expected end_time to be set")
++		}
++		if assignment.Member == nil {
++			t.Fatal("Expected member to be set")
++		}
++		if assignment.Source == nil {
++			t.Fatal("Expected source to be set")
++		}
++		if assignment.Member.UserID != "PUSERID1" {
++			t.Errorf("Expected member UserID 'PUSERID1', got '%s'", assignment.Member.UserID)
++		}
++	}
++}
++
++// TestMockFlexibleScheduleServer_InvalidJSON tests error handling for invalid JSON
++func TestMockFlexibleScheduleServer_InvalidJSON(t *testing.T) {
++	mock := newMockFlexibleScheduleServer()
++	defer mock.Close()
++
++	resp, err := http.Post(
++		fmt.Sprintf("%s/schedules", mock.URL()),
++		"application/json",
++		strings.NewReader("invalid json"),
++	)
++	if err != nil {
++		t.Fatalf("Request failed: %v", err)
++	}
++	defer resp.Body.Close()
++
++	if resp.StatusCode != http.StatusBadRequest {
++		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, resp.StatusCode)
++	}
++}
+diff --git a/vendor/github.com/PagerDuty/go-pagerduty/schedule.go b/vendor/github.com/PagerDuty/go-pagerduty/schedule.go
+index 361e392a..4d729b54 100644
+--- a/vendor/github.com/PagerDuty/go-pagerduty/schedule.go
++++ b/vendor/github.com/PagerDuty/go-pagerduty/schedule.go
+@@ -388,3 +388,185 @@ func getOverrideFromResponse(c *Client, resp *http.Response) (*Override, error)
+ 
+ 	return &o, nil
+ }
++
++// FlexibleSchedule represents the new v2 flexible schedule structure
++type FlexibleSchedule struct {
++	APIObject
++	Name          string               `json:"name,omitempty"`
++	Description   string               `json:"description,omitempty"`
++	TimeZone      string               `json:"time_zone,omitempty"`
++	Rotations     []ScheduleRotation   `json:"rotations,omitempty"`
++	FinalSchedule *FinalSchedule       `json:"final_schedule,omitempty"`
++	Teams         []APIObject          `json:"teams,omitempty"`
++}
++
++// ScheduleRotation represents a rotation in the flexible schedule
++type ScheduleRotation struct {
++	APIObject
++	Name   string          `json:"name,omitempty"`
++	Events []ScheduleEvent `json:"events,omitempty"`
++}
++
++// ScheduleEvent represents an event within a rotation
++type ScheduleEvent struct {
++	APIObject
++	StartTime          *ZonedDateTime      `json:"start_time,omitempty"`
++	EndTime            *ZonedDateTime      `json:"end_time,omitempty"`
++	EffectiveSince     string              `json:"effective_since,omitempty"`
++	EffectiveUntil     *string             `json:"effective_until,omitempty"`
++	Recurrence         []string            `json:"recurrence,omitempty"`
++	AssignmentStrategy *AssignmentStrategy `json:"assignment_strategy,omitempty"`
++}
++
++// ZonedDateTime represents a date-time with timezone
++type ZonedDateTime struct {
++	DateTime string `json:"date_time,omitempty"`
++	TimeZone string `json:"time_zone,omitempty"`
++}
++
++// AssignmentStrategy represents how members are assigned to shifts
++type AssignmentStrategy struct {
++	Type            string        `json:"type,omitempty"`
++	ShiftsPerMember int           `json:"shifts_per_member,omitempty"`
++	Members         []ShiftMember `json:"members,omitempty"`
++}
++
++// ShiftMember represents a member in an assignment strategy
++type ShiftMember struct {
++	Type   string `json:"type,omitempty"`
++	UserID string `json:"user_id,omitempty"`
++	Name   string `json:"name,omitempty"`
++	Color  string `json:"color,omitempty"`
++}
++
++// FinalSchedule represents the computed final schedule
++type FinalSchedule struct {
++	Type                       string                    `json:"type,omitempty"`
++	RenderedCoveragePercentage float64                   `json:"rendered_coverage_percentage,omitempty"`
++	ComputedShiftAssignments   []ComputedShiftAssignment `json:"computed_shift_assignments,omitempty"`
++}
++
++// ComputedShiftAssignment represents a computed shift assignment
++type ComputedShiftAssignment struct {
++	Type      string                         `json:"type,omitempty"`
++	StartTime string                         `json:"start_time,omitempty"`
++	EndTime   string                         `json:"end_time,omitempty"`
++	Member    *ShiftMember                   `json:"member,omitempty"`
++	Source    *ComputedShiftAssignmentSource `json:"source,omitempty"`
++}
++
++// ComputedShiftAssignmentSource represents the source of a computed shift assignment
++type ComputedShiftAssignmentSource struct {
++	Type              string `json:"type,omitempty"`
++	RotationID        string `json:"rotation_id,omitempty"`
++	ShiftID           string `json:"shift_id,omitempty"`
++	ShiftAssignmentID string `json:"shift_assignment_id,omitempty"`
++	CoverageID        string `json:"coverage_id,omitempty"`
++}
++
++// GetFlexibleScheduleOptions is the data structure used when calling the GetFlexibleSchedule API endpoint.
++type GetFlexibleScheduleOptions struct {
++	TimeZone string   `url:"time_zone,omitempty"`
++	Since    string   `url:"since,omitempty"`
++	Until    string   `url:"until,omitempty"`
++	Includes []string `url:"include,omitempty,brackets"`
++}
++
++// CreateFlexibleScheduleOptions is the data structure used when calling the CreateFlexibleSchedule API endpoint.
++type CreateFlexibleScheduleOptions struct {
++	Overflow bool `url:"overflow,omitempty"`
++}
++
++// UpdateFlexibleScheduleOptions is the data structure used when calling the UpdateFlexibleSchedule API endpoint.
++type UpdateFlexibleScheduleOptions struct {
++	Overflow bool `url:"overflow,omitempty"`
++}
++
++// CreateFlexibleSchedule creates a new flexible schedule using the v2 API.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) CreateFlexibleSchedule(s FlexibleSchedule) (*FlexibleSchedule, error) {
++	return c.CreateFlexibleScheduleWithContext(context.Background(), s)
++}
++
++// CreateFlexibleScheduleWithContext creates a new flexible schedule using the v2 API.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) CreateFlexibleScheduleWithContext(ctx context.Context, s FlexibleSchedule) (*FlexibleSchedule, error) {
++	d := map[string]FlexibleSchedule{
++		"schedule": s,
++	}
++
++	// Mock-up: In reality, this would use /api/v2/schedules endpoint
++	resp, err := c.post(ctx, "/schedules", d, nil)
++	return getFlexibleScheduleFromResponse(c, resp, err)
++}
++
++// GetFlexibleSchedule shows detailed information about a flexible schedule.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) GetFlexibleSchedule(id string, o GetFlexibleScheduleOptions) (*FlexibleSchedule, error) {
++	return c.GetFlexibleScheduleWithContext(context.Background(), id, o)
++}
++
++// GetFlexibleScheduleWithContext shows detailed information about a flexible schedule.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) GetFlexibleScheduleWithContext(ctx context.Context, id string, o GetFlexibleScheduleOptions) (*FlexibleSchedule, error) {
++	v, err := query.Values(o)
++	if err != nil {
++		return nil, fmt.Errorf("Could not parse values for query: %v", err)
++	}
++
++	// Mock-up: In reality, this would use /api/v2/schedules/{id} endpoint
++	resp, err := c.get(ctx, "/schedules/"+id+"?"+v.Encode(), nil)
++	return getFlexibleScheduleFromResponse(c, resp, err)
++}
++
++// UpdateFlexibleSchedule updates an existing flexible schedule.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) UpdateFlexibleSchedule(id string, s FlexibleSchedule) (*FlexibleSchedule, error) {
++	return c.UpdateFlexibleScheduleWithContext(context.Background(), id, s)
++}
++
++// UpdateFlexibleScheduleWithContext updates an existing flexible schedule.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) UpdateFlexibleScheduleWithContext(ctx context.Context, id string, s FlexibleSchedule) (*FlexibleSchedule, error) {
++	d := map[string]FlexibleSchedule{
++		"schedule": s,
++	}
++
++	// Mock-up: In reality, this would use /api/v2/schedules/{id} endpoint
++	resp, err := c.put(ctx, "/schedules/"+id, d, nil)
++	return getFlexibleScheduleFromResponse(c, resp, err)
++}
++
++// DeleteFlexibleSchedule deletes a flexible schedule.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) DeleteFlexibleSchedule(id string) error {
++	return c.DeleteFlexibleScheduleWithContext(context.Background(), id)
++}
++
++// DeleteFlexibleScheduleWithContext deletes a flexible schedule.
++// This is a mock-up implementation for the new flexible schedule API.
++func (c *Client) DeleteFlexibleScheduleWithContext(ctx context.Context, id string) error {
++	// Mock-up: In reality, this would use /api/v2/schedules/{id} endpoint
++	_, err := c.delete(ctx, "/schedules/"+id)
++	return err
++}
++
++func getFlexibleScheduleFromResponse(c *Client, resp *http.Response, err error) (*FlexibleSchedule, error) {
++	if err != nil {
++		return nil, err
++	}
++
++	var target map[string]FlexibleSchedule
++	if dErr := c.decodeJSON(resp, &target); dErr != nil {
++		return nil, fmt.Errorf("Could not decode JSON response: %v", dErr)
++	}
++
++	const rootNode = "schedule"
++
++	t, nodeOK := target[rootNode]
++	if !nodeOK {
++		return nil, fmt.Errorf("JSON response does not have %s field", rootNode)
++	}
++
++	return &t, nil
++}
+diff --git a/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/doc.go b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/doc.go
+new file mode 100644
+index 00000000..9a273b9f
+--- /dev/null
++++ b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/doc.go
+@@ -0,0 +1,5 @@
++// Copyright (c) HashiCorp, Inc.
++// SPDX-License-Identifier: MPL-2.0
++
++// Package int64planmodifier provides plan modifiers for types.Int64 attributes.
++package int64planmodifier
+diff --git a/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace.go b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace.go
+new file mode 100644
+index 00000000..dcea7e12
+--- /dev/null
++++ b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace.go
+@@ -0,0 +1,30 @@
++// Copyright (c) HashiCorp, Inc.
++// SPDX-License-Identifier: MPL-2.0
++
++package int64planmodifier
++
++import (
++	"context"
++
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++)
++
++// RequiresReplace returns a plan modifier that conditionally requires
++// resource replacement if:
++//
++//   - The resource is planned for update.
++//   - The plan and state values are not equal.
++//
++// Use RequiresReplaceIfConfigured if the resource replacement should
++// only occur if there is a configuration value (ignore unconfigured drift
++// detection changes). Use RequiresReplaceIf if the resource replacement
++// should check provider-defined conditional logic.
++func RequiresReplace() planmodifier.Int64 {
++	return RequiresReplaceIf(
++		func(_ context.Context, _ planmodifier.Int64Request, resp *RequiresReplaceIfFuncResponse) {
++			resp.RequiresReplace = true
++		},
++		"If the value of this attribute changes, Terraform will destroy and recreate the resource.",
++		"If the value of this attribute changes, Terraform will destroy and recreate the resource.",
++	)
++}
+diff --git a/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if.go b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if.go
+new file mode 100644
+index 00000000..1d51bf15
+--- /dev/null
++++ b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if.go
+@@ -0,0 +1,73 @@
++// Copyright (c) HashiCorp, Inc.
++// SPDX-License-Identifier: MPL-2.0
++
++package int64planmodifier
++
++import (
++	"context"
++
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++)
++
++// RequiresReplaceIf returns a plan modifier that conditionally requires
++// resource replacement if:
++//
++//   - The resource is planned for update.
++//   - The plan and state values are not equal.
++//   - The given function returns true. Returning false will not unset any
++//     prior resource replacement.
++//
++// Use RequiresReplace if the resource replacement should always occur on value
++// changes. Use RequiresReplaceIfConfigured if the resource replacement should
++// occur on value changes, but only if there is a configuration value (ignore
++// unconfigured drift detection changes).
++func RequiresReplaceIf(f RequiresReplaceIfFunc, description, markdownDescription string) planmodifier.Int64 {
++	return requiresReplaceIfModifier{
++		ifFunc:              f,
++		description:         description,
++		markdownDescription: markdownDescription,
++	}
++}
++
++// requiresReplaceIfModifier is an plan modifier that sets RequiresReplace
++// on the attribute if a given function is true.
++type requiresReplaceIfModifier struct {
++	ifFunc              RequiresReplaceIfFunc
++	description         string
++	markdownDescription string
++}
++
++// Description returns a human-readable description of the plan modifier.
++func (m requiresReplaceIfModifier) Description(_ context.Context) string {
++	return m.description
++}
++
++// MarkdownDescription returns a markdown description of the plan modifier.
++func (m requiresReplaceIfModifier) MarkdownDescription(_ context.Context) string {
++	return m.markdownDescription
++}
++
++// PlanModifyInt64 implements the plan modification logic.
++func (m requiresReplaceIfModifier) PlanModifyInt64(ctx context.Context, req planmodifier.Int64Request, resp *planmodifier.Int64Response) {
++	// Do not replace on resource creation.
++	if req.State.Raw.IsNull() {
++		return
++	}
++
++	// Do not replace on resource destroy.
++	if req.Plan.Raw.IsNull() {
++		return
++	}
++
++	// Do not replace if the plan and state values are equal.
++	if req.PlanValue.Equal(req.StateValue) {
++		return
++	}
++
++	ifFuncResp := &RequiresReplaceIfFuncResponse{}
++
++	m.ifFunc(ctx, req, ifFuncResp)
++
++	resp.Diagnostics.Append(ifFuncResp.Diagnostics...)
++	resp.RequiresReplace = ifFuncResp.RequiresReplace
++}
+diff --git a/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_configured.go b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_configured.go
+new file mode 100644
+index 00000000..92de6d7c
+--- /dev/null
++++ b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_configured.go
+@@ -0,0 +1,34 @@
++// Copyright (c) HashiCorp, Inc.
++// SPDX-License-Identifier: MPL-2.0
++
++package int64planmodifier
++
++import (
++	"context"
++
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++)
++
++// RequiresReplaceIfConfigured returns a plan modifier that conditionally requires
++// resource replacement if:
++//
++//   - The resource is planned for update.
++//   - The plan and state values are not equal.
++//   - The configuration value is not null.
++//
++// Use RequiresReplace if the resource replacement should occur regardless of
++// the presence of a configuration value. Use RequiresReplaceIf if the resource
++// replacement should check provider-defined conditional logic.
++func RequiresReplaceIfConfigured() planmodifier.Int64 {
++	return RequiresReplaceIf(
++		func(_ context.Context, req planmodifier.Int64Request, resp *RequiresReplaceIfFuncResponse) {
++			if req.ConfigValue.IsNull() {
++				return
++			}
++
++			resp.RequiresReplace = true
++		},
++		"If the value of this attribute is configured and changes, Terraform will destroy and recreate the resource.",
++		"If the value of this attribute is configured and changes, Terraform will destroy and recreate the resource.",
++	)
++}
+diff --git a/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_func.go b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_func.go
+new file mode 100644
+index 00000000..87a2a2eb
+--- /dev/null
++++ b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/requires_replace_if_func.go
+@@ -0,0 +1,25 @@
++// Copyright (c) HashiCorp, Inc.
++// SPDX-License-Identifier: MPL-2.0
++
++package int64planmodifier
++
++import (
++	"context"
++
++	"github.com/hashicorp/terraform-plugin-framework/diag"
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++)
++
++// RequiresReplaceIfFunc is a conditional function used in the RequiresReplaceIf
++// plan modifier to determine whether the attribute requires replacement.
++type RequiresReplaceIfFunc func(context.Context, planmodifier.Int64Request, *RequiresReplaceIfFuncResponse)
++
++// RequiresReplaceIfFuncResponse is the response type for a RequiresReplaceIfFunc.
++type RequiresReplaceIfFuncResponse struct {
++	// Diagnostics report errors or warnings related to this logic. An empty
++	// or unset slice indicates success, with no warnings or errors generated.
++	Diagnostics diag.Diagnostics
++
++	// RequiresReplace should be enabled if the resource should be replaced.
++	RequiresReplace bool
++}
+diff --git a/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/use_state_for_unknown.go b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/use_state_for_unknown.go
+new file mode 100644
+index 00000000..dbee8a08
+--- /dev/null
++++ b/vendor/github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier/use_state_for_unknown.go
+@@ -0,0 +1,55 @@
++// Copyright (c) HashiCorp, Inc.
++// SPDX-License-Identifier: MPL-2.0
++
++package int64planmodifier
++
++import (
++	"context"
++
++	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
++)
++
++// UseStateForUnknown returns a plan modifier that copies a known prior state
++// value into the planned value. Use this when it is known that an unconfigured
++// value will remain the same after a resource update.
++//
++// To prevent Terraform errors, the framework automatically sets unconfigured
++// and Computed attributes to an unknown value "(known after apply)" on update.
++// Using this plan modifier will instead display the prior state value in the
++// plan, unless a prior plan modifier adjusts the value.
++func UseStateForUnknown() planmodifier.Int64 {
++	return useStateForUnknownModifier{}
++}
++
++// useStateForUnknownModifier implements the plan modifier.
++type useStateForUnknownModifier struct{}
++
++// Description returns a human-readable description of the plan modifier.
++func (m useStateForUnknownModifier) Description(_ context.Context) string {
++	return "Once set, the value of this attribute in state will not change."
++}
++
++// MarkdownDescription returns a markdown description of the plan modifier.
++func (m useStateForUnknownModifier) MarkdownDescription(_ context.Context) string {
++	return "Once set, the value of this attribute in state will not change."
++}
++
++// PlanModifyInt64 implements the plan modification logic.
++func (m useStateForUnknownModifier) PlanModifyInt64(_ context.Context, req planmodifier.Int64Request, resp *planmodifier.Int64Response) {
++	// Do nothing if there is no state value.
++	if req.StateValue.IsNull() {
++		return
++	}
++
++	// Do nothing if there is a known planned value.
++	if !req.PlanValue.IsUnknown() {
++		return
++	}
++
++	// Do nothing if there is an unknown configuration value, otherwise interpolation gets messed up.
++	if req.ConfigValue.IsUnknown() {
++		return
++	}
++
++	resp.PlanValue = req.StateValue
++}
+diff --git a/vendor/modules.txt b/vendor/modules.txt
+index e2471053..69c75f70 100644
+--- a/vendor/modules.txt
++++ b/vendor/modules.txt
+@@ -167,6 +167,7 @@ github.com/hashicorp/terraform-plugin-framework/resource/schema
+ github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault
+ github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier
+ github.com/hashicorp/terraform-plugin-framework/resource/schema/defaults
++github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier
+ github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier
+ github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier
+ github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier
+@@ -219,8 +220,10 @@ github.com/hashicorp/terraform-plugin-mux/tf5muxserver
+ # github.com/hashicorp/terraform-plugin-sdk/v2 v2.31.0
+ ## explicit; go 1.20
+ github.com/hashicorp/terraform-plugin-sdk/v2/diag
++github.com/hashicorp/terraform-plugin-sdk/v2/helper/acctest
+ github.com/hashicorp/terraform-plugin-sdk/v2/helper/id
+ github.com/hashicorp/terraform-plugin-sdk/v2/helper/logging
++github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource
+ github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry
+ github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema
+ github.com/hashicorp/terraform-plugin-sdk/v2/helper/structure
+@@ -232,6 +235,7 @@ github.com/hashicorp/terraform-plugin-sdk/v2/internal/helper/hashcode
+ github.com/hashicorp/terraform-plugin-sdk/v2/internal/logging
+ github.com/hashicorp/terraform-plugin-sdk/v2/internal/plans/objchange
+ github.com/hashicorp/terraform-plugin-sdk/v2/internal/plugin/convert
++github.com/hashicorp/terraform-plugin-sdk/v2/internal/plugintest
+ github.com/hashicorp/terraform-plugin-sdk/v2/internal/tfdiags
+ github.com/hashicorp/terraform-plugin-sdk/v2/meta
+ github.com/hashicorp/terraform-plugin-sdk/v2/plugin
+-- 
+2.50.1 (Apple Git-155)
+

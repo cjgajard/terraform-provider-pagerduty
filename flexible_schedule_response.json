@@ -1,0 +1,342 @@
+{
+  "schedule": {
+    "id": "P65784",
+    "type": "schedule",
+    "name": "Support Team Schedule",
+    "description": "Schedule for the support team covering weekdays and weekends.",
+    "rotations": [
+      {
+        "id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+        "type": "schedule_rotation",
+        "name": "Week Days",
+        "events": [
+          {
+            "id": "AGL7U3ZVM54URKAA4VBZ4USV3I",
+            "type": "schedule_event",
+            "start_time": {
+              "date_time": "2025-07-14T08:00:00-05:00",
+              "time_zone": "America/Chicago"
+            },
+            "end_time": {
+              "date_time": "2025-07-18T17:00:00-05:00",
+              "time_zone": "America/Chicago"
+            },
+            "effective_since": "2025-07-09T12:00:00-05:00",
+            "effective_until": null,
+            "recurrence": ["RRULE:FREQ=WEEKLY"],
+            "assignment_strategy": {
+              "type": "every_member_assignment_strategy",
+              "members": [
+                {
+                  "type": "user_member",
+                  "user_id": "P01234",
+                  "color": "yellow",
+                  "name": "sara"
+                },
+                {
+                  "type": "user_member",
+                  "user_id": "P98765",
+                  "color": "green",
+                  "name": "jill"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "AGL7U3W2IR53BMSLIC2L7F7IQN",
+        "type": "schedule_rotation",
+        "name": "Weekends",
+        "events": [
+          {
+            "id": "AGL7U4CAENZMTHDYP6XUOLIFTQ",
+            "type": "schedule_event",
+            "start_time": {
+              "date_time": "2025-07-18T17:00:00-05:00",
+              "time_zone": "America/Chicago"
+            },
+            "end_time": {
+              "date_time": "2025-07-21T08:00:00-05:00",
+              "time_zone": "America/Chicago"
+            },
+            "effective_since": "2025-07-09T12:00:00-05:00",
+            "effective_until": "2025-08-01T12:00:00-05:00",
+            "recurrence": ["RRULE:FREQ=WEEKLY"],
+            "assignment_strategy": {
+              "type": "rotating_member_assignment_strategy",
+              "shifts_per_member": 1,
+              "members": [
+                {
+                  "type": "user_member",
+                  "user_id": "P98765",
+                  "color": "green",
+                  "name": "jill"
+                },
+                {
+                  "type": "user_member",
+                  "user_id": "P01234",
+                  "color": "yellow",
+                  "name": "sara"
+                }
+              ]
+            }
+          },
+          {
+            "id": "AGL7U377EZ4EHAYRTQK5CES4DU",
+            "type": "schedule_event",
+            "start_time": {
+              "date_time": "2025-07-18T17:00:00-05:00",
+              "time_zone": "America/Chicago"
+            },
+            "end_time": {
+              "date_time": "2025-07-21T08:00:00-05:00",
+              "time_zone": "America/Chicago"
+            },
+            "effective_since": "2025-08-01T12:00:00-05:00",
+            "effective_until": null,
+            "recurrence": ["RRULE:FREQ=WEEKLY"],
+            "assignment_strategy": {
+              "type": "every_member_assignment_strategy",
+              "members": [
+                {
+                  "type": "user_member",
+                  "user_id": "P99999",
+                  "color": "blue",
+                  "name": "bob"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "final_schedule": {
+      "type": "final_schedule",
+      "rendered_coverage_percentage": 93.6,
+      "computed_shift_assignments": [
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-14T08:00:00-05:00",
+          "end_time": "2025-07-14T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P77777",
+            "color": "purple",
+            "name": "dan"
+          },
+          "source": {
+            "type": "schedule_rotation_shift_coverage",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6CU",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7VFUA7Z4WNABOOBBDJNOHRY",
+            "coverage_id": "AGL7VKTGVVYQDPOT6RKVCVT4UY"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-14T17:00:00-05:00",
+          "end_time": "2025-07-15T08:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P01234",
+            "color": "yellow",
+            "name": "sara"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6CU",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7VFUA7Z4WNABOOBBDJNOHRY"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-16T17:00:00-05:00",
+          "end_time": "2025-07-18T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P01234",
+            "color": "yellow",
+            "name": "sara"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6CU",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7VFUA7Z4WNABOOBBDJNOHRY"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-18T17:00:00-05:00",
+          "end_time": "2025-07-21T08:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P98765",
+            "color": "green",
+            "name": "jill"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U4EAFBYGJNLLXBJAA4QTUV",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQN",
+            "shift_assignment_id": "AGL7VICVXR2BFP3JWLIODUX76Y"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-21T08:00:00-05:00",
+          "end_time": "2025-07-25T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P01234",
+            "color": "yellow",
+            "name": "sara"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6CV",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7WUIHYB4IHH257R7FBVPN4Q"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-21T08:00:00-05:00",
+          "end_time": "2025-07-25T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P98765",
+            "color": "green",
+            "name": "jill"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6CV",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7WWPYLNZZTOMWOX6RU2UHAE"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-25T08:00:00-05:00",
+          "end_time": "2025-07-28T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P01234",
+            "color": "yellow",
+            "name": "sara"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U4EAFBYGJNLLXBJAA4QTUW",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQN",
+            "shift_assignment_id": "AGL7VIBLEJ7J5ELO7UJJIKWEA4"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-28T08:00:00-05:00",
+          "end_time": "2025-08-01T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P01234",
+            "color": "yellow",
+            "name": "sara"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6C1",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7WUJHGFYLXF6HBZF5S5LON4"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-07-28T08:00:00-05:00",
+          "end_time": "2025-08-01T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P98765",
+            "color": "green",
+            "name": "jill"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U34AOV5LDNOUYOV74BB6C1",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQM",
+            "shift_assignment_id": "AGL7WWSAWZ6R3K4LDAUAWCS6PE"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-08-01T08:00:00-05:00",
+          "end_time": "2025-08-01T09:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P88888",
+            "color": "green",
+            "name": "aly"
+          },
+          "source": {
+            "type": "custom_shift_coverage",
+            "shift_id": "AGL7U4EAFBYGJNLLXBJAA4QTUQ",
+            "shift_assignment_id": "AGL7VEN2UB52HB2OYCJL2KGQMI",
+            "coverage_id": "AGL7U4EAFBYGJNLLXBJAA4QTUS"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-08-01T08:00:00-05:00",
+          "end_time": "2025-08-01T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P77777",
+            "color": "purple",
+            "name": "dan"
+          },
+          "source": {
+            "type": "custom_shift_coverage",
+            "shift_id": "AGL7U4EAFBYGJNLLXBJAA4QTUQ",
+            "shift_assignment_id": "AGL7U4EAFBYGJNLLXBJAA4QTUR",
+            "coverage_id": "AGL7VRVTBB34ZG4MZTYDZHUBJE"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-08-01T09:00:00-05:00",
+          "end_time": "2025-08-01T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P98765",
+            "color": "green",
+            "name": "jill"
+          },
+          "source": {
+            "type": "custom_shift",
+            "shift_id": "AGL7U4EAFBYGJNLLXBJAA4QTUQ",
+            "shift_assignment_id": "AGL7VEN2UB52HB2OYCJL2KGQMI"
+          }
+        },
+        {
+          "type": "computed_shift_assignment",
+          "start_time": "2025-08-01T08:00:00-05:00",
+          "end_time": "2025-08-04T17:00:00-05:00",
+          "member": {
+            "type": "user_member",
+            "user_id": "P99999",
+            "color": "blue",
+            "name": "bob"
+          },
+          "source": {
+            "type": "schedule_rotation_shift",
+            "shift_id": "AGL7U4EAFBYGJNLLXBJAA4QTUX",
+            "rotation_id": "AGL7U3W2IR53BMSLIC2L7F7IQN",
+            "shift_assignment_id": "AGL7U4EAFBYGJNLLXBJAA4QTUY"
+          }
+        }
+      ]
+    }
+  }
+}
