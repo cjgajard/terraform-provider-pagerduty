@@ -43,3 +43,11 @@ func IsAuthError(err error) bool {
 	}
 	return false
 }
+
+func IsForbiddenError(err error) bool {
+	var apiErr pagerduty.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusForbidden
+	}
+	return false
+}

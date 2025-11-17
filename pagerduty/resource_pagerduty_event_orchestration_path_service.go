@@ -296,6 +296,16 @@ func resourcePagerDutyEventOrchestrationPathServiceUpdate(ctx context.Context, d
 				return retry.NonRetryableError(err)
 			}
 
+			if isErrCode(err, http.StatusNotFound) {
+				log.Printf("[DEBUG] Event orchestration service path update failed with 404, retrying for eventual consistency. Service: %s, Error: %s",
+					serviceID, err.Error())
+				time.Sleep(2 * time.Second)
+			} else if isErrCode(err, http.StatusForbidden) {
+				log.Printf("[DEBUG] Event orchestration service path update failed with 403, retrying for eventual consistency. Service: %s, Error: %s",
+					serviceID, err.Error())
+				time.Sleep(2 * time.Second)
+			}
+
 			return retry.RetryableError(err)
 		} else if response != nil {
 			d.SetId(response.OrchestrationPath.Parent.ID)

@@ -1,3 +1,11 @@
+## v3.30.6 (Nov 14, 2025)
+
+BUG FIXES:
+* `resource/pagerduty_service_dependency`: Handle 403 Forbidden errors as retryable during service dependency creation to account for eventual consistency ([#XXXX](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/XXXX))
+* `resource/pagerduty_service_dependency`: Add delay between retry attempts on 404 and 403 errors to prevent API hammering
+* `resource/pagerduty_event_orchestration_service`: Add explicit delay and logging for 403/404 errors during service path updates to improve eventual consistency handling
+* `util`: Add `IsForbiddenError` helper function to check for 403 Forbidden errors
+
 ## v3.30.5 (Nov 4, 2025)
 
 BUG FIXES:

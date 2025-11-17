@@ -168,6 +168,13 @@ func (r *resourceServiceDependency) Create(ctx context.Context, req resource.Cre
 			if util.IsNotFoundError(err) {
 				log.Printf("[DEBUG] Service dependency creation failed with 404, retrying for eventual consistency. Supporting: %s, Dependent: %s, Error: %s",
 					serviceDependency.SupportingService.ID, serviceDependency.DependentService.ID, err.Error())
+				time.Sleep(2 * time.Second)
+				return retry.RetryableError(err)
+			}
+			if util.IsForbiddenError(err) {
+				log.Printf("[DEBUG] Service dependency creation failed with 403, retrying for eventual consistency. Supporting: %s, Dependent: %s, Error: %s",
+					serviceDependency.SupportingService.ID, serviceDependency.DependentService.ID, err.Error())
+				time.Sleep(2 * time.Second)
 				return retry.RetryableError(err)
 			}
 			return retry.NonRetryableError(err)
@@ -176,7 +183,7 @@ func (r *resourceServiceDependency) Create(ctx context.Context, req resource.Cre
 		return nil
 	})
 	if err != nil {
-		if util.IsNotFoundError(err) {
+		if util.IsNotFoundError(err) || util.IsForbiddenError(err) {
 			resp.Diagnostics.AddError("Error associating service dependency",
 				fmt.Sprintf("%s\n\nThis error persisted after retries, indicating either:\n"+
 					"1. Supporting service (ID: %s) doesn't exist in your PagerDuty account\n"+
