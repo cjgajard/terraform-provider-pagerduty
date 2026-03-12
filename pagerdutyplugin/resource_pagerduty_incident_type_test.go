@@ -99,3 +99,9 @@ resource "pagerduty_incident_type" "test" {
 }
 `, name, displayName, parentType)
 }
+
+func testAccCheckPagerDutyIncidentTypeDestroy(_ *terraform.State) error {
+	// Incident types cannot be deleted via the API, so we just verify
+	// the test completed without checking if the resource still exists
+	return nil
+}
