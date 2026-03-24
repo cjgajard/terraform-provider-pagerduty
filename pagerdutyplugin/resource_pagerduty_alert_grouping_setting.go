@@ -319,7 +319,7 @@ func (r *resourceAlertGroupingSetting) Delete(ctx context.Context, req resource.
 	resp.State.RemoveResource(ctx)
 }
 
-func (r *resourceAlertGroupingSetting) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *resourceAlertGroupingSetting) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	resp.Diagnostics.Append(ConfigurePagerdutyClient(&r.client, req.ProviderData)...)
 }
 
@@ -332,6 +332,7 @@ func (r *resourceAlertGroupingSetting) validateServicesReuse(ctx context.Context
 	for i, s := range plan.Services {
 		serviceIDs[i] = s.ID
 	}
+	fmt.Println("[CG]", serviceIDs)
 
 	list, err := r.client.ListAlertGroupingSettings(ctx, pagerduty.ListAlertGroupingSettingsOptions{
 		ServiceIDs: serviceIDs,
@@ -345,25 +346,21 @@ func (r *resourceAlertGroupingSetting) validateServicesReuse(ctx context.Context
 	}
 
 	var reused []pagerduty.AlertGroupingSetting
-	if plan.ID == "" {
-		for _, a := range list.AlertGroupingSettings {
-			reused = append(reused, a)
+	for _, a := range list.AlertGroupingSettings {
+		if a.ID == plan.ID {
+			continue
 		}
-	} else {
-		for _, a := range list.AlertGroupingSettings {
-			if a.ID != plan.ID {
-				reused = append(reused, a)
-			}
-		}
+		reused = append(reused, a)
 	}
 
 	if len(reused) > 0 {
 		for _, a := range reused {
 			type usage struct {
-				At       int
-				By, ByID string
+				At        int
+				By, ByID  string
+				ServiceID string
 			}
-			bad := []usage{}
+			var bad []usage
 			for _, s := range a.Services {
 				for i, sid := range serviceIDs {
 					if s.ID == sid {
@@ -371,6 +368,7 @@ func (r *resourceAlertGroupingSetting) validateServicesReuse(ctx context.Context
 							At:   i,
 							By:   a.Name,
 							ByID: a.ID,
+							ServiceID: s.ID,
 						})
 					}
 				}
@@ -382,10 +380,11 @@ func (r *resourceAlertGroupingSetting) validateServicesReuse(ctx context.Context
 				} else {
 					agsString = fmt.Sprintf("%q [id=%s]", b.By, b.ByID)
 				}
+
 				diags.AddAttributeError(
-					path.Root("services").AtListIndex(b.At),
+					path.Root("services").AtSetValue(types.StringValue(b.ServiceID)),
 					"This service is associated to another alert grouping setting",
-					fmt.Sprintf("Alert grouping setting %s", agsString),
+					fmt.Sprintf("Alert grouping setting %s, Service id=%s", agsString, b.ServiceID) + fmt.Sprint(b.At),
 				)
 			}
 		}
@@ -451,7 +450,7 @@ func buildPagerdutyAlertGroupingSettingConfig(ctx context.Context, model *resour
 		if diags.Append(d...); d.HasError() {
 			return pagerduty.AlertGroupingSettingConfigContentBased{}
 		}
-		fields := []string{}
+		var fields []string
 		diags.Append(target.Fields.ElementsAs(ctx, &fields, false)...)
 		return pagerduty.AlertGroupingSettingConfigContentBased{
 			TimeWindow: uint(target.TimeWindow.ValueInt64()),
@@ -461,7 +460,7 @@ func buildPagerdutyAlertGroupingSettingConfig(ctx context.Context, model *resour
 
 	case string(pagerduty.AlertGroupingSettingIntelligentType):
 		diags.Append(model.Config.As(ctx, &target, basetypes.ObjectAsOptions{})...)
-		iagFields := []string{}
+		var iagFields []string
 		diags.Append(target.IagFields.ElementsAs(ctx, &iagFields, false)...)
 		return pagerduty.AlertGroupingSettingConfigIntelligent{
 			TimeWindow: uint(target.TimeWindow.ValueInt64()),
