@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
@@ -219,13 +220,14 @@ func (r *resourceAlertGroupingSetting) Create(ctx context.Context, req resource.
 		return nil
 	})
 	if err != nil {
+		if util.IsBadRequestError(err) && strings.Contains(err.Error(), "is already in another group") {
+			r.validateServicesReuse(ctx, plan, &resp.Diagnostics)
+			return
+		}
 		resp.Diagnostics.AddError(
 			fmt.Sprintf("Error creating PagerDuty alert grouping setting %s", plan.Name),
 			err.Error(),
 		)
-		if util.IsBadRequestError(err) {
-			r.validateServicesReuse(ctx, plan, &resp.Diagnostics)
-		}
 		return
 	}
 
@@ -332,7 +334,6 @@ func (r *resourceAlertGroupingSetting) validateServicesReuse(ctx context.Context
 	for i, s := range plan.Services {
 		serviceIDs[i] = s.ID
 	}
-	fmt.Println("[CG]", serviceIDs)
 
 	list, err := r.client.ListAlertGroupingSettings(ctx, pagerduty.ListAlertGroupingSettingsOptions{
 		ServiceIDs: serviceIDs,
