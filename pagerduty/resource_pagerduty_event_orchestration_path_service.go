@@ -110,54 +110,23 @@ func buildEventOrchestrationPathServiceRuleActionsSchema() map[string]*schema.Sc
 	return a
 }
 
-func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
-	// First run the existing checkExtractions validation
-	if err := checkExtractions(ctx, diff, meta); err != nil {
-		return err
-	}
-
-	// Only check for existing configuration during CREATE (when ID is not set yet)
-	// If the resource is already in state (imported or existing), skip this validation
-	if diff.Id() != "" {
-		return nil
-	}
-
-	// Get the service ID from the configuration
-	serviceIDInterface, ok := diff.GetOk("service")
-	if !ok {
-		return nil
-	}
-	serviceID := serviceIDInterface.(string)
-
-	client, err := meta.(*Config).Client()
-	if err != nil {
-		return err
-	}
-
+// checkExistingServiceOrchestrationConfig queries PagerDuty and returns an error if the
+// service already has a non-trivial orchestration configuration that would be overwritten.
+// Returns nil when the service has no meaningful config or when the service no longer exists (403).
+func checkExistingServiceOrchestrationConfig(ctx context.Context, client *pagerduty.Client, serviceID string) error {
 	var existingPath *pagerduty.EventOrchestrationPath
-	var wasDeleted bool
 
-	// Retry for 5 seconds to read the existing service orchestration
 	retryErr := retry.RetryContext(ctx, 5*time.Second, func() *retry.RetryError {
 		path, _, err := client.EventOrchestrationPaths.GetContext(ctx, serviceID, "service")
-
 		if err != nil {
-			// If 403 Forbidden, the service was deleted - mark it as orphaned
 			if isErrCode(err, http.StatusForbidden) {
-				wasDeleted = true
-				diff.Clear("id")
 				return nil
 			}
-
-			// Retry on transient errors
 			if !isErrCode(err, http.StatusBadRequest) {
 				return retry.RetryableError(err)
 			}
-
 			return retry.NonRetryableError(err)
 		}
-
-		// If no error, we got a successful response
 		existingPath = path
 		return nil
 	})
@@ -166,15 +135,10 @@ func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.Resourc
 		return retryErr
 	}
 
-	// If the resource was orphaned (403), we've already cleared the ID
-	if wasDeleted || existingPath == nil {
+	if existingPath == nil {
 		return nil
 	}
 
-	// Check if existing orchestration has non-trivial configuration
-	hasNonTrivialConfig := false
-
-	// Check if catch_all has actions configured (non-empty)
 	if existingPath.CatchAll != nil && existingPath.CatchAll.Actions != nil {
 		a := existingPath.CatchAll.Actions
 		if a.Suppress || a.Priority != "" || a.Severity != "" ||
@@ -183,25 +147,37 @@ func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.Resourc
 			len(a.Variables) > 0 || len(a.Extractions) > 0 ||
 			len(a.AutomationActions) > 0 || len(a.PagerdutyAutomationActions) > 0 ||
 			len(a.IncidentCustomFieldUpdates) > 0 {
-			hasNonTrivialConfig = true
+			return fmt.Errorf("the service orchestration (ID: %s) has existing configuration that might be overwritten; please import this resource before creating or updating it using: terraform import pagerduty_event_orchestration_path_service.<resource_name> %s", serviceID, serviceID)
 		}
 	}
 
-	// Check if there are 2 or more sets
-	if len(existingPath.Sets) >= 2 {
-		hasNonTrivialConfig = true
-	}
-
-	// Check if the first set has rules configured
-	if len(existingPath.Sets) > 0 && len(existingPath.Sets[0].Rules) > 0 {
-		hasNonTrivialConfig = true
-	}
-
-	if hasNonTrivialConfig {
+	if len(existingPath.Sets) >= 2 || (len(existingPath.Sets) > 0 && len(existingPath.Sets[0].Rules) > 0) {
 		return fmt.Errorf("the service orchestration (ID: %s) has existing configuration that might be overwritten; please import this resource before creating or updating it using: terraform import pagerduty_event_orchestration_path_service.<resource_name> %s", serviceID, serviceID)
 	}
 
 	return nil
+}
+
+func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+	if err := checkExtractions(ctx, diff, meta); err != nil {
+		return err
+	}
+
+	if diff.Id() != "" {
+		return nil
+	}
+
+	serviceIDInterface, ok := diff.GetOk("service")
+	if !ok {
+		return nil
+	}
+
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return err
+	}
+
+	return checkExistingServiceOrchestrationConfig(ctx, client, serviceIDInterface.(string))
 }
 
 func resourcePagerDutyEventOrchestrationPathService() *schema.Resource {
@@ -366,6 +342,16 @@ func resourcePagerDutyEventOrchestrationPathServiceRead(ctx context.Context, d *
 }
 
 func resourcePagerDutyEventOrchestrationPathServiceCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	serviceID := d.Get("service").(string)
+	if err := checkExistingServiceOrchestrationConfig(ctx, client, serviceID); err != nil {
+		return diag.FromErr(err)
+	}
+
 	return resourcePagerDutyEventOrchestrationPathServiceUpdate(ctx, d, meta)
 }
 
