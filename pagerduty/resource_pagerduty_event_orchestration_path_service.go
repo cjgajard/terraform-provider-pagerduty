@@ -110,54 +110,6 @@ func buildEventOrchestrationPathServiceRuleActionsSchema() map[string]*schema.Sc
 	return a
 }
 
-// checkExistingServiceOrchestrationConfig queries PagerDuty and returns an error if the
-// service already has a non-trivial orchestration configuration that would be overwritten.
-// Returns nil when the service has no meaningful config or when the service no longer exists (403).
-func checkExistingServiceOrchestrationConfig(ctx context.Context, client *pagerduty.Client, serviceID string) error {
-	var existingPath *pagerduty.EventOrchestrationPath
-
-	retryErr := retry.RetryContext(ctx, 5*time.Second, func() *retry.RetryError {
-		path, _, err := client.EventOrchestrationPaths.GetContext(ctx, serviceID, "service")
-		if err != nil {
-			if isErrCode(err, http.StatusForbidden) {
-				return nil
-			}
-			if !isErrCode(err, http.StatusBadRequest) {
-				return retry.RetryableError(err)
-			}
-			return retry.NonRetryableError(err)
-		}
-		existingPath = path
-		return nil
-	})
-
-	if retryErr != nil {
-		return retryErr
-	}
-
-	if existingPath == nil {
-		return nil
-	}
-
-	if existingPath.CatchAll != nil && existingPath.CatchAll.Actions != nil {
-		a := existingPath.CatchAll.Actions
-		if a.Suppress || a.Priority != "" || a.Severity != "" ||
-			a.EventAction != "" || a.Annotate != "" || a.RouteTo != "" ||
-			a.Suspend != nil || a.EscalationPolicy != nil ||
-			len(a.Variables) > 0 || len(a.Extractions) > 0 ||
-			len(a.AutomationActions) > 0 || len(a.PagerdutyAutomationActions) > 0 ||
-			len(a.IncidentCustomFieldUpdates) > 0 {
-			return fmt.Errorf("the service orchestration (ID: %s) has existing configuration that might be overwritten; please import this resource before creating or updating it using: terraform import pagerduty_event_orchestration_path_service.<resource_name> %s", serviceID, serviceID)
-		}
-	}
-
-	if len(existingPath.Sets) >= 2 || (len(existingPath.Sets) > 0 && len(existingPath.Sets[0].Rules) > 0) {
-		return fmt.Errorf("the service orchestration (ID: %s) has existing configuration that might be overwritten; please import this resource before creating or updating it using: terraform import pagerduty_event_orchestration_path_service.<resource_name> %s", serviceID, serviceID)
-	}
-
-	return nil
-}
-
 func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
 	if err := checkExtractions(ctx, diff, meta); err != nil {
 		return err
@@ -167,7 +119,7 @@ func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.Resourc
 		return nil
 	}
 
-	serviceIDInterface, ok := diff.GetOk("service")
+	serviceID, ok := diff.GetOk("service")
 	if !ok {
 		return nil
 	}
@@ -177,7 +129,7 @@ func customizeDiffServiceOrchestration(ctx context.Context, diff *schema.Resourc
 		return err
 	}
 
-	return checkExistingServiceOrchestrationConfig(ctx, client, serviceIDInterface.(string))
+	return checkExistingOrchestrationPathConfig(ctx, client, serviceID.(string), "service", "pagerduty_event_orchestration_service")
 }
 
 func resourcePagerDutyEventOrchestrationPathService() *schema.Resource {
@@ -347,8 +299,7 @@ func resourcePagerDutyEventOrchestrationPathServiceCreate(ctx context.Context, d
 		return diag.FromErr(err)
 	}
 
-	serviceID := d.Get("service").(string)
-	if err := checkExistingServiceOrchestrationConfig(ctx, client, serviceID); err != nil {
+	if err := checkExistingOrchestrationPathConfig(ctx, client, d.Get("service").(string), "service", "pagerduty_event_orchestration_service"); err != nil {
 		return diag.FromErr(err)
 	}
 

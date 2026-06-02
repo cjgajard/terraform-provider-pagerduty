@@ -23,7 +23,7 @@ func resourcePagerDutyEventOrchestrationPathRouter() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: resourcePagerDutyEventOrchestrationPathRouterImport,
 		},
-		CustomizeDiff: checkDynamicRoutingRule,
+		CustomizeDiff: customizeDiffRouterOrchestration,
 		Schema: map[string]*schema.Schema{
 			"event_orchestration": {
 				Type:     schema.TypeString,
@@ -135,6 +135,28 @@ func resourcePagerDutyEventOrchestrationPathRouter() *schema.Resource {
 	}
 }
 
+func customizeDiffRouterOrchestration(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+	if err := checkDynamicRoutingRule(ctx, diff, meta); err != nil {
+		return err
+	}
+
+	if diff.Id() != "" {
+		return nil
+	}
+
+	orchID, ok := diff.GetOk("event_orchestration")
+	if !ok {
+		return nil
+	}
+
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return err
+	}
+
+	return checkExistingOrchestrationPathConfig(ctx, client, orchID.(string), "router", "pagerduty_event_orchestration_router")
+}
+
 func checkDynamicRoutingRule(context context.Context, diff *schema.ResourceDiff, i interface{}) error {
 	rNum := diff.Get("set.0.rule.#").(int)
 	draIdxs := []int{}
@@ -240,6 +262,15 @@ func resourcePagerDutyEventOrchestrationPathRouterRead(ctx context.Context, d *s
 
 // EventOrchestrationPath cannot be created, use update to add / edit / remove rules and sets
 func resourcePagerDutyEventOrchestrationPathRouterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	if err := checkExistingOrchestrationPathConfig(ctx, client, d.Get("event_orchestration").(string), "router", "pagerduty_event_orchestration_router"); err != nil {
+		return diag.FromErr(err)
+	}
+
 	return resourcePagerDutyEventOrchestrationPathRouterUpdate(ctx, d, meta)
 }
 

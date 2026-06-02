@@ -12,6 +12,28 @@ import (
 	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
+func customizeDiffGlobalOrchestration(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+	if err := checkExtractions(ctx, diff, meta); err != nil {
+		return err
+	}
+
+	if diff.Id() != "" {
+		return nil
+	}
+
+	orchID, ok := diff.GetOk("event_orchestration")
+	if !ok {
+		return nil
+	}
+
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return err
+	}
+
+	return checkExistingOrchestrationPathConfig(ctx, client, orchID.(string), "global", "pagerduty_event_orchestration_global")
+}
+
 var eventOrchestrationPathGlobalCatchAllActionsSchema = map[string]*schema.Schema{
 	"drop_event": {
 		Type:     schema.TypeBool,
@@ -99,7 +121,7 @@ func resourcePagerDutyEventOrchestrationPathGlobal() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: resourcePagerDutyEventOrchestrationPathGlobalImport,
 		},
-		CustomizeDiff: checkExtractions,
+		CustomizeDiff: customizeDiffGlobalOrchestration,
 		Schema: map[string]*schema.Schema{
 			"event_orchestration": {
 				Type:     schema.TypeString,
@@ -207,6 +229,15 @@ func resourcePagerDutyEventOrchestrationPathGlobalRead(ctx context.Context, d *s
 }
 
 func resourcePagerDutyEventOrchestrationPathGlobalCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	if err := checkExistingOrchestrationPathConfig(ctx, client, d.Get("event_orchestration").(string), "global", "pagerduty_event_orchestration_global"); err != nil {
+		return diag.FromErr(err)
+	}
+
 	return resourcePagerDutyEventOrchestrationPathGlobalUpdate(ctx, d, meta)
 }
 

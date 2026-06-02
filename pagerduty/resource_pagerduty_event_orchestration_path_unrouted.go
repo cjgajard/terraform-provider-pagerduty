@@ -13,6 +13,28 @@ import (
 	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
+func customizeDiffUnroutedOrchestration(ctx context.Context, diff *schema.ResourceDiff, meta interface{}) error {
+	if err := checkExtractions(ctx, diff, meta); err != nil {
+		return err
+	}
+
+	if diff.Id() != "" {
+		return nil
+	}
+
+	orchID, ok := diff.GetOk("event_orchestration")
+	if !ok {
+		return nil
+	}
+
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return err
+	}
+
+	return checkExistingOrchestrationPathConfig(ctx, client, orchID.(string), "unrouted", "pagerduty_event_orchestration_unrouted")
+}
+
 func resourcePagerDutyEventOrchestrationPathUnrouted() *schema.Resource {
 	return &schema.Resource{
 		ReadContext:   resourcePagerDutyEventOrchestrationPathUnroutedRead,
@@ -22,7 +44,7 @@ func resourcePagerDutyEventOrchestrationPathUnrouted() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			StateContext: resourcePagerDutyEventOrchestrationPathUnroutedImport,
 		},
-		CustomizeDiff: checkExtractions,
+		CustomizeDiff: customizeDiffUnroutedOrchestration,
 		Schema: map[string]*schema.Schema{
 			"event_orchestration": {
 				Type:     schema.TypeString,
@@ -202,6 +224,15 @@ func resourcePagerDutyEventOrchestrationPathUnroutedRead(ctx context.Context, d 
 
 // EventOrchestrationPath cannot be created, use update to add / edit / remove rules and sets
 func resourcePagerDutyEventOrchestrationPathUnroutedCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	client, err := meta.(*Config).Client()
+	if err != nil {
+		return diag.FromErr(err)
+	}
+
+	if err := checkExistingOrchestrationPathConfig(ctx, client, d.Get("event_orchestration").(string), "unrouted", "pagerduty_event_orchestration_unrouted"); err != nil {
+		return diag.FromErr(err)
+	}
+
 	return resourcePagerDutyEventOrchestrationPathUnroutedUpdate(ctx, d, meta)
 }
 
