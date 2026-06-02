@@ -448,7 +448,13 @@ func checkExistingOrchestrationPathConfig(ctx context.Context, client *pagerduty
 		path, _, err := client.EventOrchestrationPaths.GetContext(ctx, orchID, pathType)
 		if err != nil {
 			if isErrCode(err, http.StatusForbidden) {
-				return nil
+				// For service paths the API returns 403 (not 404) when the parent
+				// service has been deleted; treat it as "no existing config".
+				// For other path types a 403 is a real permission error.
+				if pathType == "service" {
+					return nil
+				}
+				return retry.NonRetryableError(err)
 			}
 			if isErrCode(err, http.StatusBadRequest) {
 				return retry.NonRetryableError(err)
