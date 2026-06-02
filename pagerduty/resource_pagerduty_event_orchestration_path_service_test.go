@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
 func init() {
@@ -233,6 +234,75 @@ func TestAccPagerDutyEventOrchestrationPathService_Basic(t *testing.T) {
 						resource.TestCheckResourceAttr(resourceName, "enable_event_orchestration_for_service", "false"),
 					)...,
 				),
+			},
+		},
+	})
+}
+
+func TestAccPagerDutyEventOrchestrationPathService_OverwriteGuard(t *testing.T) {
+	escalationPolicy := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	service := fmt.Sprintf("tf-%s", acctest.RandString(5))
+
+	resourceName := "pagerduty_event_orchestration_service.serviceA"
+	serviceResourceName := "pagerduty_service.bar"
+
+	injectNonTrivialConfig := func(s *terraform.State) error {
+		srv, ok := s.RootModule().Resources[serviceResourceName]
+		if !ok {
+			return fmt.Errorf("Service resource not found: %s", serviceResourceName)
+		}
+		serviceID := srv.Primary.ID
+
+		client, _ := testAccProvider.Meta().(*Config).Client()
+		payload := &pagerduty.EventOrchestrationPath{
+			Parent: &pagerduty.EventOrchestrationPathReference{ID: serviceID},
+			Sets: []*pagerduty.EventOrchestrationPathSet{
+				{
+					ID: "start",
+					Rules: []*pagerduty.EventOrchestrationPathRule{
+						{
+							Label: "injected rule",
+							Actions: &pagerduty.EventOrchestrationPathRuleActions{
+								Severity: "critical",
+							},
+						},
+					},
+				},
+			},
+			CatchAll: &pagerduty.EventOrchestrationPathCatchAll{
+				Actions: &pagerduty.EventOrchestrationPathRuleActions{},
+			},
+		}
+		_, _, err := client.EventOrchestrationPaths.UpdateContext(context.Background(), serviceID, "service", payload)
+		return err
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPagerDutyEventOrchestrationServicePathDestroy,
+		Steps: []resource.TestStep{
+			// Create the resource so the service exists in state.
+			{
+				Config: testAccCheckPagerDutyEventOrchestrationPathServiceDefaultConfig(escalationPolicy, service),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEventOrchestrationPathServiceExists(resourceName),
+				),
+			},
+			// Drop the resource from TF (triggers Delete/reset to empty), then inject
+			// non-trivial config out-of-band so the next create attempt is blocked.
+			{
+				Config: testAccCheckPagerDutyEventOrchestrationPathServiceResourceDeleteConfig(escalationPolicy, service),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEventOrchestrationServicePathNotExists(resourceName),
+					injectNonTrivialConfig,
+				),
+			},
+			// Plan-only: CustomizeDiff must block with the import hint.
+			{
+				Config:      testAccCheckPagerDutyEventOrchestrationPathServiceDefaultConfig(escalationPolicy, service),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`has existing configuration that might be overwritten`),
 			},
 		},
 	})

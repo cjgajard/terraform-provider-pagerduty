@@ -260,6 +260,81 @@ func TestAccPagerDutyEventOrchestrationPathRouter_NilConditionHandling(t *testin
 	})
 }
 
+func TestAccPagerDutyEventOrchestrationPathRouter_OverwriteGuard(t *testing.T) {
+	team := fmt.Sprintf("tf-name-%s", acctest.RandString(5))
+	escalationPolicy := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	service := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	orchestration := fmt.Sprintf("tf-orchestration-%s", acctest.RandString(5))
+
+	routerRes := "pagerduty_event_orchestration_router.router"
+	orchRes := "pagerduty_event_orchestration.orch"
+	serviceRes := "pagerduty_service.bar"
+
+	injectNonTrivialConfig := func(s *terraform.State) error {
+		orchState, ok := s.RootModule().Resources[orchRes]
+		if !ok {
+			return fmt.Errorf("Orchestration resource not found: %s", orchRes)
+		}
+		svcState, ok := s.RootModule().Resources[serviceRes]
+		if !ok {
+			return fmt.Errorf("Service resource not found: %s", serviceRes)
+		}
+		orchID := orchState.Primary.ID
+		serviceID := svcState.Primary.ID
+
+		client, _ := testAccProvider.Meta().(*Config).Client()
+		payload := &pagerduty.EventOrchestrationPath{
+			Parent: &pagerduty.EventOrchestrationPathReference{ID: orchID},
+			Sets: []*pagerduty.EventOrchestrationPathSet{
+				{
+					ID: "start",
+					Rules: []*pagerduty.EventOrchestrationPathRule{
+						{
+							Label: "injected routing rule",
+							Actions: &pagerduty.EventOrchestrationPathRuleActions{
+								RouteTo: serviceID,
+							},
+						},
+					},
+				},
+			},
+			CatchAll: &pagerduty.EventOrchestrationPathCatchAll{
+				Actions: &pagerduty.EventOrchestrationPathRuleActions{
+					RouteTo: "unrouted",
+				},
+			},
+		}
+		_, _, err := client.EventOrchestrationPaths.UpdateContext(context.Background(), orchID, "router", payload)
+		return err
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPagerDutyEventOrchestrationRouterDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccCheckPagerDutyEventOrchestrationRouterConfigNoRules(team, escalationPolicy, service, orchestration),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEventOrchestrationRouterExists(routerRes),
+				),
+			},
+			{
+				Config: testAccCheckPagerDutyEventOrchestrationRouterConfigDelete(team, escalationPolicy, service, orchestration),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEventOrchestrationRouterNotExists(routerRes),
+					injectNonTrivialConfig,
+				),
+			},
+			{
+				Config:      testAccCheckPagerDutyEventOrchestrationRouterConfigNoRules(team, escalationPolicy, service, orchestration),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`has existing configuration that might be overwritten`),
+			},
+		},
+	})
+}
+
 func testAccCheckPagerDutyEventOrchestrationRouterDestroy(s *terraform.State) error {
 	client, _ := testAccProvider.Meta().(*Config).Client()
 	for _, r := range s.RootModule().Resources {

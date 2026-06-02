@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"github.com/heimweh/go-pagerduty/pagerduty"
 )
 
 func init() {
@@ -235,6 +236,73 @@ func TestAccPagerDutyEventOrchestrationPathUnrouted_Basic(t *testing.T) {
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPagerDutyEventOrchestrationPathUnroutedNotExists("pagerduty_event_orchestration_unrouted.unrouted"),
 				),
+			},
+		},
+	})
+}
+
+func TestAccPagerDutyEventOrchestrationPathUnrouted_OverwriteGuard(t *testing.T) {
+	team := fmt.Sprintf("tf-team-%s", acctest.RandString(5))
+	escalationPolicy := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	service := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	orchestration := fmt.Sprintf("tf-orchestration-%s", acctest.RandString(5))
+
+	unroutedRes := "pagerduty_event_orchestration_unrouted.unrouted"
+	orchRes := "pagerduty_event_orchestration.orch"
+
+	injectNonTrivialConfig := func(s *terraform.State) error {
+		orchState, ok := s.RootModule().Resources[orchRes]
+		if !ok {
+			return fmt.Errorf("Orchestration resource not found: %s", orchRes)
+		}
+		orchID := orchState.Primary.ID
+
+		client, _ := testAccProvider.Meta().(*Config).Client()
+		payload := &pagerduty.EventOrchestrationPath{
+			Parent: &pagerduty.EventOrchestrationPathReference{ID: orchID},
+			Sets: []*pagerduty.EventOrchestrationPathSet{
+				{
+					ID: "start",
+					Rules: []*pagerduty.EventOrchestrationPathRule{
+						{
+							Label: "injected rule",
+							Actions: &pagerduty.EventOrchestrationPathRuleActions{
+								Severity: "warning",
+							},
+						},
+					},
+				},
+			},
+			CatchAll: &pagerduty.EventOrchestrationPathCatchAll{
+				Actions: &pagerduty.EventOrchestrationPathRuleActions{},
+			},
+		}
+		_, _, err := client.EventOrchestrationPaths.UpdateContext(context.Background(), orchID, "unrouted", payload)
+		return err
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPagerDutyEventOrchestrationPathUnroutedDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccCheckPagerDutyEventOrchestrationPathUnroutedConfigNoRules(team, escalationPolicy, service, orchestration),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEventOrchestrationPathUnroutedExists(unroutedRes),
+				),
+			},
+			{
+				Config: testAccCheckPagerDutyEventOrchestrationPathUnroutedConfigDelete(team, escalationPolicy, service, orchestration),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyEventOrchestrationPathUnroutedNotExists(unroutedRes),
+					injectNonTrivialConfig,
+				),
+			},
+			{
+				Config:      testAccCheckPagerDutyEventOrchestrationPathUnroutedConfigNoRules(team, escalationPolicy, service, orchestration),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`has existing configuration that might be overwritten`),
 			},
 		},
 	})
