@@ -290,7 +290,8 @@ func TestAccPagerDutyEventOrchestrationPathRouter_OverwriteGuard(t *testing.T) {
 					ID: "start",
 					Rules: []*pagerduty.EventOrchestrationPathRule{
 						{
-							Label: "injected routing rule",
+							Label:      "injected routing rule",
+							Conditions: []*pagerduty.EventOrchestrationPathRuleCondition{},
 							Actions: &pagerduty.EventOrchestrationPathRuleActions{
 								RouteTo: serviceID,
 							},

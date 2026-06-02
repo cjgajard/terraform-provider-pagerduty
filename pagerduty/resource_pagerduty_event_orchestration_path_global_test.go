@@ -194,6 +194,16 @@ func TestAccPagerDutyEventOrchestrationPathGlobal_OverwriteGuard(t *testing.T) {
 		orchID := orchState.Primary.ID
 
 		client, _ := testAccProvider.Meta().(*Config).Client()
+		emptyActions := func() *pagerduty.EventOrchestrationPathRuleActions {
+			return &pagerduty.EventOrchestrationPathRuleActions{
+				AutomationActions:          []*pagerduty.EventOrchestrationPathAutomationAction{},
+				Variables:                  []*pagerduty.EventOrchestrationPathActionVariables{},
+				Extractions:                []*pagerduty.EventOrchestrationPathActionExtractions{},
+				IncidentCustomFieldUpdates: []*pagerduty.EventOrchestrationPathIncidentCustomFieldUpdate{},
+			}
+		}
+		ruleActions := emptyActions()
+		ruleActions.Severity = "critical"
 		payload := &pagerduty.EventOrchestrationPath{
 			Parent: &pagerduty.EventOrchestrationPathReference{ID: orchID},
 			Sets: []*pagerduty.EventOrchestrationPathSet{
@@ -201,16 +211,15 @@ func TestAccPagerDutyEventOrchestrationPathGlobal_OverwriteGuard(t *testing.T) {
 					ID: "start",
 					Rules: []*pagerduty.EventOrchestrationPathRule{
 						{
-							Label: "injected rule",
-							Actions: &pagerduty.EventOrchestrationPathRuleActions{
-								Severity: "critical",
-							},
+							Label:      "injected rule",
+							Conditions: []*pagerduty.EventOrchestrationPathRuleCondition{},
+							Actions:    ruleActions,
 						},
 					},
 				},
 			},
 			CatchAll: &pagerduty.EventOrchestrationPathCatchAll{
-				Actions: &pagerduty.EventOrchestrationPathRuleActions{},
+				Actions: emptyActions(),
 			},
 		}
 		_, _, err := client.EventOrchestrationPaths.UpdateContext(context.Background(), orchID, "global", payload)
