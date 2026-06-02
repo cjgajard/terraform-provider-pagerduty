@@ -196,6 +196,7 @@ func TestAccPagerDutyEventOrchestrationPathGlobal_OverwriteGuard(t *testing.T) {
 		client, _ := testAccProvider.Meta().(*Config).Client()
 		emptyActions := func() *pagerduty.EventOrchestrationPathRuleActions {
 			return &pagerduty.EventOrchestrationPathRuleActions{
+				PagerdutyAutomationActions: []*pagerduty.EventOrchestrationPathPagerdutyAutomationAction{},
 				AutomationActions:          []*pagerduty.EventOrchestrationPathAutomationAction{},
 				Variables:                  []*pagerduty.EventOrchestrationPathActionVariables{},
 				Extractions:                []*pagerduty.EventOrchestrationPathActionExtractions{},
