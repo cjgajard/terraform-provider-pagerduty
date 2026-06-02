@@ -483,7 +483,10 @@ func checkExistingOrchestrationPathConfig(ctx context.Context, client *pagerduty
 	} else {
 		if existingPath.CatchAll != nil && existingPath.CatchAll.Actions != nil {
 			a := existingPath.CatchAll.Actions
-			if a.Suppress || a.DropEvent || a.Priority != "" || a.Severity != "" ||
+			// The unrouted path always has suppress=true set by the API; exclude it
+			// from the trivial check so a fresh orchestration is never falsely blocked.
+			suppressNonTrivial := a.Suppress && pathType != "unrouted"
+			if suppressNonTrivial || a.DropEvent || a.Priority != "" || a.Severity != "" ||
 				a.EventAction != "" || a.Annotate != "" || a.RouteTo != "" ||
 				a.Suspend != nil || a.EscalationPolicy != nil ||
 				len(a.Variables) > 0 || len(a.Extractions) > 0 ||
