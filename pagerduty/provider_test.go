@@ -3,8 +3,10 @@ package pagerduty
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +41,71 @@ func TestProvider(t *testing.T) {
 
 func TestProviderImpl(t *testing.T) {
 	var _ *schema.Provider = Provider(IsNotMuxed)
+}
+
+func TestHandleStaleIDError(t *testing.T) {
+	req, err := http.NewRequest("PUT", "https://api.eu.pagerduty.com/users/PU123/contact_methods/PC456", nil)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	structuredNotFound := &pagerduty.Error{
+		ErrorResponse: &pagerduty.Response{
+			Response: &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Request: req},
+		},
+		Code:    2100,
+		Message: "Not Found",
+	}
+
+	// The API returns 404 both as a decodable error payload and, when the body
+	// doesn't decode, as a bare string error. Both must yield the guidance.
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"structured error", structuredNotFound},
+		{"malformed error", fmt.Errorf("PUT API call to https://api.eu.pagerduty.com/users/PU123/contact_methods/PC456 failed: 404 Not Found")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := handleStaleIDError(tc.err, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method")
+			if got == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			for _, want := range []string{
+				"pagerduty_user_contact_method PC456 no longer exists",
+				"-refresh-only",
+				"is not required",
+				"Original API error",
+			} {
+				if !strings.Contains(got.Error(), want) {
+					t.Errorf("expected error to mention %q, got: %s", want, got)
+				}
+			}
+		})
+	}
+
+	t.Run("nil error", func(t *testing.T) {
+		if got := handleStaleIDError(nil, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method"); got != nil {
+			t.Errorf("expected nil, got: %s", got)
+		}
+	})
+
+	// Anything that isn't a 404 has to reach the operator untouched: masking a
+	// 500 or a permissions error with "it was deleted outside of Terraform"
+	// would send them chasing the wrong problem.
+	t.Run("other error passes through", func(t *testing.T) {
+		cause := fmt.Errorf("PUT API call to https://api.eu.pagerduty.com/users/PU123/contact_methods/PC456 failed: 500 Internal Server Error")
+		got := handleStaleIDError(cause, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method")
+		if got != cause {
+			t.Errorf("expected the original error, got: %v", got)
+		}
+	})
+}
+
+func testContactMethodResourceData(t *testing.T, id string) *schema.ResourceData {
+	t.Helper()
+	d := resourcePagerDutyUserContactMethod().TestResourceData()
+	d.SetId(id)
+	return d
 }
 
 func TestAccPagerDutyProviderAuthMethods_Basic(t *testing.T) {

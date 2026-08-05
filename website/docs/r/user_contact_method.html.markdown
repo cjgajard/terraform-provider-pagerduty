@@ -12,6 +12,8 @@ description: |-
 
 A [contact method](https://developer.pagerduty.com/api-reference/b3A6Mjc0ODI0MA-create-a-user-contact-method) is a contact method for a PagerDuty user (email, phone or SMS).
 
+-> If a contact method managed by Terraform is deleted directly in the PagerDuty web interface, a normal `terraform plan`/`terraform apply` detects that it is gone during refresh and re-creates it. Removing it from state with `terraform state rm` is not needed. If your workflow applies a saved plan file or runs with `-refresh=false`, the deletion cannot be detected before the apply, so run `terraform apply -refresh-only` (or re-plan with refresh enabled) first.
+
 
 ## Example Usage
 
