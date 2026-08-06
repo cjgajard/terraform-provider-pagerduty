@@ -1,4 +1,7 @@
-## v3.34.1 (Unreleased)
+## Unreleased
+
+BREAKING CHANGES
+* `resource/pagerduty_user_contact_method`: `user_id` is now `ForceNew`. A contact method's ID is scoped under its user, so changing `user_id` previously planned an in-place update that always failed with `404 Not Found`; it now replaces the resource ([1141](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/1141))
 
 BUG FIXES
 * `resource/pagerduty_user_contact_method`: Honor the caller's error handler when reading back a contact method, so a `404` right after create is retried and then reported instead of being silently treated as "resource gone" and dropped from state ([1141](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/1141))

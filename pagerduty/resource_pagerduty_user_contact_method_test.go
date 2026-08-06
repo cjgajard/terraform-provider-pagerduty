@@ -94,6 +94,45 @@ func TestAccPagerDutyUserContactMethod_RecreateAfterOutOfBandDelete(t *testing.T
 	})
 }
 
+// TestAccPagerDutyUserContactMethod_UserIDForceNew pins user_id as ForceNew. A
+// contact method's ID is scoped under its user, so an in-place update would PUT
+// the existing ID under the new user and 404 — and because Read looks the method
+// up under the user_id still in state, it stays alive under the old user, the
+// same update is replanned, and no amount of refreshing converges.
+func TestAccPagerDutyUserContactMethod_UserIDForceNew(t *testing.T) {
+	userOne := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	userTwo := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	address := fmt.Sprintf("%s@foo.test", acctest.RandString(6))
+
+	var firstID string
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:     func() { testAccPreCheck(t) },
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPagerDutyUserContactMethodDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccCheckPagerDutyUserContactMethodTwoUsersConfig(userOne, userTwo, address, "one"),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyUserContactMethodExists("pagerduty_user_contact_method.foo"),
+					testAccCapturePagerDutyUserContactMethodIDs("pagerduty_user_contact_method.foo", new(string), &firstID),
+					resource.TestCheckResourceAttrPair(
+						"pagerduty_user_contact_method.foo", "user_id", "pagerduty_user.one", "id"),
+				),
+			},
+			{
+				Config: testAccCheckPagerDutyUserContactMethodTwoUsersConfig(userOne, userTwo, address, "two"),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyUserContactMethodExists("pagerduty_user_contact_method.foo"),
+					resource.TestCheckResourceAttrPair(
+						"pagerduty_user_contact_method.foo", "user_id", "pagerduty_user.two", "id"),
+					testAccCheckPagerDutyUserContactMethodRecreated("pagerduty_user_contact_method.foo", &firstID),
+				),
+			},
+		},
+	})
+}
+
 func testAccCheckPagerDutyUserContactMethodDestroy(s *terraform.State) error {
 	client, _ := testAccProvider.Meta().(*Config).Client()
 	for _, r := range s.RootModule().Resources {
@@ -176,4 +215,25 @@ resource "pagerduty_user_contact_method" "foo" {
   label   = "%[4]s"
 }
 `, username, email, address, label)
+}
+
+func testAccCheckPagerDutyUserContactMethodTwoUsersConfig(userOne, userTwo, address, target string) string {
+	return fmt.Sprintf(`
+resource "pagerduty_user" "one" {
+  name  = "%[1]s"
+  email = "%[1]s@foo.test"
+}
+
+resource "pagerduty_user" "two" {
+  name  = "%[2]s"
+  email = "%[2]s@foo.test"
+}
+
+resource "pagerduty_user_contact_method" "foo" {
+  user_id = pagerduty_user.%[3]s.id
+  type    = "email_contact_method"
+  address = "%[4]s"
+  label   = "Work"
+}
+`, userOne, userTwo, target, address)
 }

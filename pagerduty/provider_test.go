@@ -43,7 +43,7 @@ func TestProviderImpl(t *testing.T) {
 	var _ *schema.Provider = Provider(IsNotMuxed)
 }
 
-func TestHandleStaleIDError(t *testing.T) {
+func TestHandleStaleIDErrorOnUpdate(t *testing.T) {
 	req, err := http.NewRequest("PUT", "https://api.eu.pagerduty.com/users/PU123/contact_methods/PC456", nil)
 	if err != nil {
 		t.Fatalf("err: %s", err)
@@ -66,7 +66,7 @@ func TestHandleStaleIDError(t *testing.T) {
 		{"malformed error", fmt.Errorf("PUT API call to https://api.eu.pagerduty.com/users/PU123/contact_methods/PC456 failed: 404 Not Found")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := handleStaleIDError(tc.err, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method")
+			got := handleStaleIDErrorOnUpdate(tc.err, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method")
 			if got == nil {
 				t.Fatal("expected an error, got nil")
 			}
@@ -84,7 +84,7 @@ func TestHandleStaleIDError(t *testing.T) {
 	}
 
 	t.Run("nil error", func(t *testing.T) {
-		if got := handleStaleIDError(nil, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method"); got != nil {
+		if got := handleStaleIDErrorOnUpdate(nil, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method"); got != nil {
 			t.Errorf("expected nil, got: %s", got)
 		}
 	})
@@ -94,7 +94,7 @@ func TestHandleStaleIDError(t *testing.T) {
 	// would send them chasing the wrong problem.
 	t.Run("other error passes through", func(t *testing.T) {
 		cause := fmt.Errorf("PUT API call to https://api.eu.pagerduty.com/users/PU123/contact_methods/PC456 failed: 500 Internal Server Error")
-		got := handleStaleIDError(cause, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method")
+		got := handleStaleIDErrorOnUpdate(cause, testContactMethodResourceData(t, "PC456"), "pagerduty_user_contact_method")
 		if got != cause {
 			t.Errorf("expected the original error, got: %v", got)
 		}

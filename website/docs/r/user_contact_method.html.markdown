@@ -52,7 +52,7 @@ resource "pagerduty_user_contact_method" "sms" {
 
 The following arguments are supported:
 
-  * `user_id` - (Required) The ID of the user.
+  * `user_id` - (Required) The ID of the user. A contact method cannot be moved between users, so changing this forces a new resource to be created.
   * `type` - (Required) The contact method type. May be (`email_contact_method`, `phone_contact_method`, `sms_contact_method`, `push_notification_contact_method`, `whatsapp_contact_method`).
   * `send_short_email` - (Optional) Send an abbreviated email message instead of the standard email output.
   * `country_code` - (Optional) The 1-to-3 digit country calling code. Required when using `phone_contact_method` or `sms_contact_method`.
