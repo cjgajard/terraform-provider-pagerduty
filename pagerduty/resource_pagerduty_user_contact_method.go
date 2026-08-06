@@ -25,9 +25,13 @@ func resourcePagerDutyUserContactMethod() *schema.Resource {
 		},
 		CustomizeDiff: customizeDiffResourceUserContactMethod,
 		Schema: map[string]*schema.Schema{
+			// A contact method's ID is scoped under its user, so it cannot be
+			// moved: updating in place would PUT the existing ID under the new
+			// user and 404. Replacement is the only way to converge.
 			"user_id": {
 				Type:     schema.TypeString,
 				Required: true,
+				ForceNew: true,
 			},
 
 			"type": {
@@ -156,7 +160,7 @@ func fetchPagerDutyUserContactMethod(d *schema.ResourceData, meta interface{}, e
 				return retry.NonRetryableError(err)
 			}
 
-			errResp := handleNotFoundError(err, d)
+			errResp := errCallback(err, d)
 			if errResp != nil {
 				time.Sleep(2 * time.Second)
 				return retry.RetryableError(errResp)
@@ -214,7 +218,7 @@ func resourcePagerDutyUserContactMethodUpdate(d *schema.ResourceData, meta inter
 	userID := d.Get("user_id").(string)
 
 	if _, _, err := client.Users.UpdateContactMethod(userID, d.Id(), contactMethod); err != nil {
-		return err
+		return handleStaleIDErrorOnUpdate(err, d, "pagerduty_user_contact_method")
 	}
 
 	return resourcePagerDutyUserContactMethodRead(d, meta)

@@ -1,3 +1,17 @@
+## Unreleased
+
+BREAKING CHANGES
+* `resource/pagerduty_user_contact_method`: `user_id` is now `ForceNew`. A contact method's ID is scoped under its user, so changing `user_id` previously planned an in-place update that always failed with `404 Not Found`; it now replaces the resource ([1141](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/1141))
+
+BUG FIXES
+* `resource/pagerduty_user_contact_method`: Honor the caller's error handler when reading back a contact method, so a `404` right after create is retried and then reported instead of being silently treated as "resource gone" and dropped from state ([1141](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/1141))
+
+ENHANCEMENTS
+* `resource/pagerduty_user_contact_method`: Return a clear, actionable error when an update targets a contact method that was deleted outside of Terraform after the plan was generated, pointing at `terraform apply -refresh-only` instead of surfacing a bare `404 Not Found` ([1141](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/1141))
+
+DOCS
+* `resource/pagerduty_user_contact_method`: Document that a contact method deleted in the web interface is re-created by a refresh-enabled plan/apply and does not require `terraform state rm` ([1141](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/1141))
+
 ## v3.34.0 (Jul 7, 2026)
 
 ENHANCEMENTS

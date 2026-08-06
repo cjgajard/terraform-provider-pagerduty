@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
 	"runtime"
 	"strings"
@@ -219,6 +220,33 @@ func isMalformedForbiddenError(err error) bool {
 
 func genError(err error, d *schema.ResourceData) error {
 	return fmt.Errorf("Error reading: %s: %s", d.Id(), err)
+}
+
+// handleStaleIDErrorOnUpdate converts a not-found error returned by an update
+// call into actionable guidance. Terraform only plans an update against an ID it
+// read during refresh, so a 404 here means the object was deleted outside of
+// Terraform *after* the plan was generated — typically by applying a saved plan
+// file or running with refresh disabled. A refresh is all that's needed for
+// Terraform to drop the stale ID and re-create the object, so say so instead of
+// surfacing a bare API error that reads like a provider failure and pushes
+// operators toward `terraform state rm`.
+//
+// The emitted text describes an update specifically, hence the name: a create or
+// delete reaching a 404 got there by a different route and needs different
+// advice. Callers must also ensure the planned update could have succeeded at
+// all — an attribute that renames the object's URL has to be ForceNew, or this
+// reports "deleted outside of Terraform" for a 404 that a refresh cannot fix.
+func handleStaleIDErrorOnUpdate(err error, d *schema.ResourceData, resourceType string) error {
+	if err == nil {
+		return nil
+	}
+	if isErrCode(err, http.StatusNotFound) || isMalformedNotFoundError(err) {
+		return fmt.Errorf("%s %s no longer exists in PagerDuty, so the planned update could not be applied. "+
+			"It was most likely deleted outside of Terraform after this plan was generated, which happens when applying a saved plan file or running with `-refresh=false`. "+
+			"Run `terraform apply -refresh-only`, or a plain `terraform plan`/`terraform apply` with refresh enabled, and Terraform will forget the deleted object and re-create it from your configuration. "+
+			"Removing it from state with `terraform state rm` is not required.\n\nOriginal API error: %s", resourceType, d.Id(), err)
+	}
+	return err
 }
 
 func handleNotFoundError(err error, d *schema.ResourceData) error {
