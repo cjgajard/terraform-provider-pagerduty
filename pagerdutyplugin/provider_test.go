@@ -104,6 +104,12 @@ func testAccPreCheckPagerDutyAbility(t *testing.T, ability string) {
 	}
 }
 
+func testAccPreCheckIncidentWorkflows(t *testing.T) {
+	if v := os.Getenv("PAGERDUTY_ACC_INCIDENT_WORKFLOWS"); v == "" {
+		t.Skip("PAGERDUTY_ACC_INCIDENT_WORKFLOWS not set. Skipping Incident Workflows-related test")
+	}
+}
+
 func testAccCheckPagerDutyUserDestroy(s *terraform.State) error {
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_user" {

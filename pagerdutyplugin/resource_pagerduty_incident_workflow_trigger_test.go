@@ -1,16 +1,18 @@
 package pagerduty
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
-	"strings"
 	"testing"
 
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	"github.com/heimweh/go-pagerduty/pagerduty"
+	heimweh "github.com/heimweh/go-pagerduty/pagerduty"
 )
 
 func init() {
@@ -20,35 +22,47 @@ func init() {
 	})
 }
 
-func testSweepIncidentWorkflowTrigger(region string) error {
-	config, err := sharedConfigForRegion(region)
+// testSweepIncidentWorkflowTrigger enumerates test-created workflows through
+// the legacy heimweh client (the pagerduty_incident_workflow resource has not
+// been migrated yet, so that is still the only client that knows how to list
+// workflows by name) and deletes their triggers through the official client
+// that backs the now-migrated pagerduty_incident_workflow_trigger resource.
+func testSweepIncidentWorkflowTrigger(_ string) error {
+	token := os.Getenv("PAGERDUTY_TOKEN")
+	if token == "" {
+		return fmt.Errorf("PAGERDUTY_TOKEN must be set")
+	}
+
+	legacyClient, err := heimweh.NewClient(&heimweh.Config{Token: token})
 	if err != nil {
 		return err
 	}
 
-	client, err := config.Client()
+	workflowsResp, _, err := legacyClient.IncidentWorkflows.List(&heimweh.ListIncidentWorkflowOptions{})
 	if err != nil {
 		return err
 	}
 
-	workflowsResp, _, err := client.IncidentWorkflows.List(&pagerduty.ListIncidentWorkflowOptions{})
-	if err != nil {
-		return err
-	}
+	ctx := context.Background()
+	client := testAccProvider.client
 
 	for _, iw := range workflowsResp.IncidentWorkflows {
-		if strings.HasPrefix(iw.Name, "tf-") {
-			triggersResp, _, err := client.IncidentWorkflowTriggers.List(&pagerduty.ListIncidentWorkflowTriggerOptions{WorkflowID: iw.ID})
+		opts := pagerduty.ListIncidentWorkflowTriggersOptions{WorkflowID: iw.ID, Limit: 100}
+		for {
+			page, err := client.ListIncidentWorkflowTriggers(ctx, opts)
 			if err != nil {
 				return err
 			}
-
-			for _, t := range triggersResp.Triggers {
+			for _, t := range page.Triggers {
 				log.Printf("Destroying incident workflow trigger %s", t.ID)
-				if _, err := client.IncidentWorkflowTriggers.Delete(t.ID); err != nil {
+				if err := client.DeleteIncidentWorkflowTrigger(ctx, t.ID); err != nil {
 					return err
 				}
 			}
+			if page.NextPageToken == "" {
+				break
+			}
+			opts.PageToken = page.NextPageToken
 		}
 	}
 
@@ -68,11 +82,12 @@ resource "pagerduty_incident_workflow_trigger" "my_first_workflow_trigger" {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config:      config,
-				ExpectError: regexp.MustCompile(`"dummy" is an invalid value. Must be one of \[]string{"manual", "conditional"}`),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`(?s)value must be one of.*"dummy"`),
 			},
 		},
 	})
@@ -92,10 +107,11 @@ resource "pagerduty_incident_workflow_trigger" "my_first_workflow_trigger" {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config:      config,
+				PlanOnly:    true,
 				ExpectError: regexp.MustCompile("when trigger type manual is used, condition must not be specified"),
 			},
 		},
@@ -117,20 +133,76 @@ resource "pagerduty_incident_workflow_trigger" "my_first_workflow_trigger" {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config:      config,
+				PlanOnly:    true,
 				ExpectError: regexp.MustCompile("when subscribed_to_all_services is true, services must either be not defined or empty"),
 			},
 		},
 	})
 }
 
+func TestAccPagerDutyIncidentWorkflowTrigger_IncidentTypesOnWrongType(t *testing.T) {
+	workflow := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	config := fmt.Sprintf(`
+%s
+
+resource "pagerduty_incident_workflow_trigger" "test" {
+  type                       = "conditional"
+  workflow                   = pagerduty_incident_workflow.test.id
+  condition                  = "incident.priority matches 'P1'"
+  incident_types             = ["PLACEHOLDER"]
+  subscribed_to_all_services = true
+}
+`, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow))
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccPreCheckIncidentWorkflows(t)
+		},
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config:      config,
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile("incident_types can only be specified when trigger type is incident_type"),
+			},
+		},
+	})
+}
+
+func TestAccPagerDutyIncidentWorkflowTrigger_IncidentTypeMissingTypes(t *testing.T) {
+	workflow := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	config := fmt.Sprintf(`
+%s
+
+resource "pagerduty_incident_workflow_trigger" "test" {
+  type                       = "incident_type"
+  workflow                   = pagerduty_incident_workflow.test.id
+  subscribed_to_all_services = true
+}
+`, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow))
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccPreCheckIncidentWorkflows(t)
+		},
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		Steps: []resource.TestStep{
+			{
+				Config:      config,
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile("incident_types must be specified when trigger type is incident_type"),
+			},
+		},
+	})
+}
+
 func TestAccPagerDutyIncidentWorkflowTrigger_BasicManual(t *testing.T) {
-	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
-	email := fmt.Sprintf("%s@foo.test", username)
-	escalationPolicy := fmt.Sprintf("tf-%s", acctest.RandString(5))
 	service := fmt.Sprintf("tf-%s", acctest.RandString(5))
 	workflow := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
@@ -139,11 +211,11 @@ func TestAccPagerDutyIncidentWorkflowTrigger_BasicManual(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
-		CheckDestroy:      testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualSingleService(username, email, escalationPolicy, service, workflow),
+				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualSingleService(service, workflow),
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
 					resource.TestCheckResourceAttr(
@@ -154,19 +226,38 @@ func TestAccPagerDutyIncidentWorkflowTrigger_BasicManual(t *testing.T) {
 	})
 }
 
-func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualSingleService(username, email, escalationPolicy, service, workflow string) string {
+// testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow returns a
+// minimal pagerduty_incident_workflow (still backed by the legacy provider,
+// which is unaffected by the trigger resource's migration and remains
+// available through the same muxed provider factory).
+func testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(name string) string {
 	return fmt.Sprintf(`
-%s
+resource "pagerduty_incident_workflow" "test" {
+  name = "%s"
+}
+`, name)
+}
+
+func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualSingleService(service, workflow string) string {
+	return fmt.Sprintf(`
+data "pagerduty_escalation_policy" "default" {
+  name = "Default"
+}
+
+resource "pagerduty_service" "test" {
+  name              = "%s"
+  escalation_policy = data.pagerduty_escalation_policy.default.id
+}
 
 %s
 
 resource "pagerduty_incident_workflow_trigger" "test" {
   type       = "manual"
   workflow   = pagerduty_incident_workflow.test.id
-  services   = [pagerduty_service.foo.id]
+  services   = [pagerduty_service.test.id]
   subscribed_to_all_services = false
 }
-`, testAccCheckPagerDutyServiceConfig(username, email, escalationPolicy, service), testAccCheckPagerDutyIncidentWorkflowConfig(workflow))
+`, service, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow))
 }
 
 func TestAccPagerDutyIncidentWorkflowTrigger_BasicConditionalAllServices(t *testing.T) {
@@ -177,8 +268,8 @@ func TestAccPagerDutyIncidentWorkflowTrigger_BasicConditionalAllServices(t *test
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
-		CheckDestroy:      testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigConditionalAllServices(workflow, ""),
@@ -216,10 +307,34 @@ func TestAccPagerDutyIncidentWorkflowTrigger_BasicConditionalAllServices(t *test
 	})
 }
 
+func testAccCheckPagerDutyIncidentWorkflowTriggerConfigConditionalAllServices(workflow, condition string) string {
+	return fmt.Sprintf(`
+%s
+
+resource "pagerduty_incident_workflow_trigger" "test" {
+  type       = "conditional"
+  workflow   = pagerduty_incident_workflow.test.id
+  services   = []
+  condition  = "%s"
+  subscribed_to_all_services = true
+}
+`, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow), condition)
+}
+
+func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualAllServices(workflow string) string {
+	return fmt.Sprintf(`
+%s
+
+resource "pagerduty_incident_workflow_trigger" "test" {
+  type       = "manual"
+  workflow   = pagerduty_incident_workflow.test.id
+  services   = []
+  subscribed_to_all_services = true
+}
+`, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow))
+}
+
 func TestAccPagerDutyIncidentWorkflowTrigger_ManualWithTeamPermissions(t *testing.T) {
-	username := fmt.Sprintf("tf-%s", acctest.RandString(5))
-	email := fmt.Sprintf("%s@foo.test", username)
-	escalationPolicy := fmt.Sprintf("tf-%s", acctest.RandString(5))
 	service := fmt.Sprintf("tf-%s", acctest.RandString(5))
 	workflow := fmt.Sprintf("tf-%s", acctest.RandString(5))
 	teamName := fmt.Sprintf("tf-%s", acctest.RandString(5))
@@ -232,21 +347,24 @@ func TestAccPagerDutyIncidentWorkflowTrigger_ManualWithTeamPermissions(t *testin
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
-		CheckDestroy:      testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissions(username, email, escalationPolicy, service, teamName, workflow),
+				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissions(service, teamName, workflow),
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
 					resource.TestCheckResourceAttr(
 						"pagerduty_incident_workflow_trigger.test", "type", "manual"),
+					// permissions is a block: when not configured it is an
+					// empty list, not a computed default value, unlike the
+					// legacy SDKv2 resource. See CHANGELOG for v3.36.0.
 					resource.TestCheckResourceAttr(
-						"pagerduty_incident_workflow_trigger.test", "permissions.0.restricted", "false"),
+						"pagerduty_incident_workflow_trigger.test", "permissions.#", "0"),
 				),
 			},
 			{
-				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(username, email, escalationPolicy, service, teamName, workflow, "manual", emptyCondition, "true", teamIDTFRef),
+				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(service, teamName, workflow, "manual", emptyCondition, "true", teamIDTFRef),
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
 					resource.TestCheckResourceAttr(
@@ -258,35 +376,34 @@ func TestAccPagerDutyIncidentWorkflowTrigger_ManualWithTeamPermissions(t *testin
 			},
 			// Check input validation conditions for permissions configuration
 			{
-				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(username, email, escalationPolicy, service, teamName, workflow, "conditional", dummyCondition, "true", teamIDTFRef),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
-				),
+				Config:      testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(service, teamName, workflow, "conditional", dummyCondition, "true", teamIDTFRef),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile("restricted can only be true when trigger type is manual"),
 			},
 			{
-				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(username, email, escalationPolicy, service, teamName, workflow, "manual", emptyCondition, "false", teamIDTFRef),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
-				),
+				Config:      testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(service, teamName, workflow, "manual", emptyCondition, "false", teamIDTFRef),
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile("team_id not allowed when restricted is false"),
 			},
 			{
-				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(username, email, escalationPolicy, service, teamName, workflow, "manual", emptyCondition, "true", `""`),
-				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
-				),
+				Config:      testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(service, teamName, workflow, "manual", emptyCondition, "true", `""`),
+				PlanOnly:    true,
 				ExpectError: regexp.MustCompile("team_id must be specified when restricted is true"),
 			},
 		},
 	})
 }
 
-func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissions(username, email, escalationPolicy, service, workflow, team string) string {
+func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissions(service, team, workflow string) string {
 	return fmt.Sprintf(`
-%s
+data "pagerduty_escalation_policy" "default" {
+  name = "Default"
+}
+
+resource "pagerduty_service" "test" {
+  name              = "%s"
+  escalation_policy = data.pagerduty_escalation_policy.default.id
+}
 
 %s
 
@@ -297,15 +414,22 @@ resource "pagerduty_team" "foo" {
 resource "pagerduty_incident_workflow_trigger" "test" {
   type                       = "manual"
   workflow                   = pagerduty_incident_workflow.test.id
-  services                   = [pagerduty_service.foo.id]
+  services                   = [pagerduty_service.test.id]
   subscribed_to_all_services = false
 }
-`, testAccCheckPagerDutyServiceConfig(username, email, escalationPolicy, service), testAccCheckPagerDutyIncidentWorkflowConfig(workflow), team)
+`, service, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow), team)
 }
 
-func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(username, email, escalationPolicy, service, workflow, team, triggerType, condition, isRestricted, teamId string) string {
+func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualWithPermissionsUpdated(service, team, workflow, triggerType, condition, isRestricted, teamId string) string {
 	return fmt.Sprintf(`
-%s
+data "pagerduty_escalation_policy" "default" {
+  name = "Default"
+}
+
+resource "pagerduty_service" "test" {
+  name              = "%s"
+  escalation_policy = data.pagerduty_escalation_policy.default.id
+}
 
 %s
 
@@ -317,14 +441,14 @@ resource "pagerduty_incident_workflow_trigger" "test" {
   type                       = "%s"
   condition                  = "%s"
   workflow                   = pagerduty_incident_workflow.test.id
-  services                   = [pagerduty_service.foo.id]
+  services                   = [pagerduty_service.test.id]
   subscribed_to_all_services = false
   permissions {
     restricted = %s
     team_id    = %s
   }
 }
-`, testAccCheckPagerDutyServiceConfig(username, email, escalationPolicy, service), testAccCheckPagerDutyIncidentWorkflowConfig(workflow), team, triggerType, condition, isRestricted, teamId)
+`, service, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow), team, triggerType, condition, isRestricted, teamId)
 }
 
 func testAccCheckPagerDutyIncidentWorkflowTriggerCheckPermissionsTeamId(iwtName, teamName string) resource.TestCheckFunc {
@@ -345,15 +469,14 @@ func testAccCheckPagerDutyIncidentWorkflowTriggerCheckPermissionsTeamId(iwtName,
 			return fmt.Errorf("no team ID is set")
 		}
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-
-		found, _, err := client.IncidentWorkflowTriggers.Get(rsIWT.Primary.ID)
+		ctx := context.Background()
+		found, err := testAccProvider.client.GetIncidentWorkflowTrigger(ctx, rsIWT.Primary.ID, pagerduty.GetIncidentWorkflowTriggerOptions{})
 		if err != nil {
 			return err
 		}
 
-		if found.Permissions.TeamID != rsTeam.Primary.ID {
-			return fmt.Errorf("incident workflow trigger team restriction wanted %q, but got %q", rsTeam.Primary.ID, found.Permissions.TeamID)
+		if found.Permissions == nil || found.Permissions.TeamID != rsTeam.Primary.ID {
+			return fmt.Errorf("incident workflow trigger team restriction wanted %q, but got %+v", rsTeam.Primary.ID, found.Permissions)
 		}
 
 		return nil
@@ -368,8 +491,8 @@ func TestAccPagerDutyIncidentWorkflowTrigger_ChangeTypeCausesReplace(t *testing.
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
-		CheckDestroy:      testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigConditionalAllServices(workflow, ""),
@@ -406,33 +529,6 @@ func TestAccPagerDutyIncidentWorkflowTrigger_ChangeTypeCausesReplace(t *testing.
 	})
 }
 
-func testAccCheckPagerDutyIncidentWorkflowTriggerConfigConditionalAllServices(workflow, condition string) string {
-	return fmt.Sprintf(`
-%s
-
-resource "pagerduty_incident_workflow_trigger" "test" {
-  type       = "conditional"
-  workflow   = pagerduty_incident_workflow.test.id
-  services   = []
-  condition  = "%s"
-  subscribed_to_all_services = true
-}
-`, testAccCheckPagerDutyIncidentWorkflowConfig(workflow), condition)
-}
-
-func testAccCheckPagerDutyIncidentWorkflowTriggerConfigManualAllServices(workflow string) string {
-	return fmt.Sprintf(`
-%s
-
-resource "pagerduty_incident_workflow_trigger" "test" {
-  type       = "manual"
-  workflow   = pagerduty_incident_workflow.test.id
-  services   = []
-  subscribed_to_all_services = true
-}
-`, testAccCheckPagerDutyIncidentWorkflowConfig(workflow))
-}
-
 func TestAccPagerDutyIncidentWorkflowTrigger_CannotChangeType(t *testing.T) {
 	workflow := fmt.Sprintf("tf-%s", acctest.RandString(5))
 
@@ -441,8 +537,8 @@ func TestAccPagerDutyIncidentWorkflowTrigger_CannotChangeType(t *testing.T) {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
-		CheckDestroy:      testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: testAccCheckPagerDutyIncidentWorkflowTriggerConfigConditionalAllServices(workflow, ""),
@@ -485,25 +581,13 @@ func TestAccPagerDutyIncidentWorkflowTrigger_UpdateToEmptyCondition(t *testing.T
 
 	configFn := func(condition string) string {
 		return fmt.Sprintf(`
-resource "pagerduty_user" "example" {
-  name  = "%s-user"
-  email = "%[1]s-user@foo.test"
-}
-
-resource "pagerduty_escalation_policy" "test" {
-  name      = "%[1]s-ep"
-  rule {
-    escalation_delay_in_minutes = 10
-    target {
-      type = "user_reference"
-      id   = pagerduty_user.example.id
-    }
-  }
+data "pagerduty_escalation_policy" "default" {
+  name = "Default"
 }
 
 resource "pagerduty_service" "test" {
-  name = "%[1]s"
-  escalation_policy = pagerduty_escalation_policy.test.id
+  name              = "%[1]s"
+  escalation_policy = data.pagerduty_escalation_policy.default.id
 }
 
 resource "pagerduty_incident_workflow" "test" {
@@ -513,7 +597,7 @@ resource "pagerduty_incident_workflow" "test" {
 resource "pagerduty_incident_workflow_trigger" "test" {
   type       = "conditional"
   workflow   = pagerduty_incident_workflow.test.id
-  condition  = "%s"
+  condition  = "%[2]s"
   subscribed_to_all_services = false
   services = [pagerduty_service.test.id]
 }
@@ -525,7 +609,8 @@ resource "pagerduty_incident_workflow_trigger" "test" {
 			testAccPreCheck(t)
 			testAccPreCheckIncidentWorkflows(t)
 		},
-		ProviderFactories: testAccProviderFactories,
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
 		Steps: []resource.TestStep{
 			{
 				Config: configFn("incident.priority matches 'P1'"),
@@ -551,17 +636,74 @@ resource "pagerduty_incident_workflow_trigger" "test" {
 	})
 }
 
+// TestAccPagerDutyIncidentWorkflowTrigger_BasicIncidentType exercises the new
+// incident_type trigger type and its incident_types argument, added to the
+// PagerDuty API on 2025-01-24.
+//
+// NOTE: the exact wire shape of incident_types (a list of bare IDs vs. a list
+// of {id, type} references) was assumed, not verified against a live
+// account — see the plan doc. If the API rejects this configuration, only
+// the SDK struct and this resource's expand/flatten need to change; this
+// test's shape (a flat list of incident type IDs in HCL) should not need to.
+func TestAccPagerDutyIncidentWorkflowTrigger_BasicIncidentType(t *testing.T) {
+	ref := fmt.Sprintf("tf-%s", acctest.RandString(5))
+	workflow := fmt.Sprintf("tf-%s", acctest.RandString(5))
+
+	config := func(incidentTypeRefs string) string {
+		return fmt.Sprintf(`
+resource "pagerduty_incident_type" "test" {
+  name         = "%[1]s_type"
+  display_name = "%[1]s Type"
+  parent_type  = "incident_default"
+  enabled      = true
+}
+
+%[2]s
+
+resource "pagerduty_incident_workflow_trigger" "test" {
+  type                       = "incident_type"
+  workflow                   = pagerduty_incident_workflow.test.id
+  incident_types             = [%[3]s]
+  subscribed_to_all_services = true
+}
+`, ref, testAccCheckPagerDutyIncidentWorkflowTriggerConfigWorkflow(workflow), incidentTypeRefs)
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testAccPreCheckIncidentWorkflows(t)
+		},
+		ProtoV5ProviderFactories: testAccProtoV5ProviderFactories(),
+		CheckDestroy:             testAccCheckPagerDutyIncidentWorkflowTriggerDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: config("pagerduty_incident_type.test.id"),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPagerDutyIncidentWorkflowTriggerExists("pagerduty_incident_workflow_trigger.test"),
+					resource.TestCheckResourceAttr(
+						"pagerduty_incident_workflow_trigger.test", "type", "incident_type"),
+					resource.TestCheckResourceAttr(
+						"pagerduty_incident_workflow_trigger.test", "incident_types.#", "1"),
+					resource.TestCheckResourceAttrSet(
+						"pagerduty_incident_workflow_trigger.test", "incident_types.0"),
+				),
+			},
+		},
+	})
+}
+
 func testAccCheckPagerDutyIncidentWorkflowTriggerDestroy(s *terraform.State) error {
-	client, _ := testAccProvider.Meta().(*Config).Client()
+	ctx := context.Background()
+	client := testAccProvider.client
 	for _, r := range s.RootModule().Resources {
 		if r.Type != "pagerduty_incident_workflow_trigger" {
 			continue
 		}
 
-		if _, _, err := client.IncidentWorkflowTriggers.Get(r.Primary.ID); err == nil {
+		if _, err := client.GetIncidentWorkflowTrigger(ctx, r.Primary.ID, pagerduty.GetIncidentWorkflowTriggerOptions{}); err == nil {
 			return fmt.Errorf("incident workflow trigger still exists")
 		}
-
 	}
 	return nil
 }
@@ -576,9 +718,8 @@ func testAccCheckPagerDutyIncidentWorkflowTriggerExists(n string) resource.TestC
 			return fmt.Errorf("no incident workflow trigger ID is set")
 		}
 
-		client, _ := testAccProvider.Meta().(*Config).Client()
-
-		found, _, err := client.IncidentWorkflowTriggers.Get(rs.Primary.ID)
+		ctx := context.Background()
+		found, err := testAccProvider.client.GetIncidentWorkflowTrigger(ctx, rs.Primary.ID, pagerduty.GetIncidentWorkflowTriggerOptions{})
 		if err != nil {
 			return err
 		}

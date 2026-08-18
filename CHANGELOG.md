@@ -1,3 +1,16 @@
+## Unreleased
+
+FEATURES
+* `resource/pagerduty_incident_workflow_trigger`: Support the `incident_type` trigger type and the new `incident_types` argument, so a workflow can be triggered by the incident's type ([XXXX](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/XXXX))
+
+IMPROVEMENTS
+* `resource/pagerduty_incident_workflow_trigger`: Migrate to terraform-plugin-framework and the official `PagerDuty/go-pagerduty` SDK ([XXXX](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/XXXX))
+
+BREAKING CHANGES
+* `resource/pagerduty_incident_workflow_trigger`: `permissions` is no longer populated in state when it is absent from configuration. Previously the block was computed and refreshed from the API even when unconfigured; the plugin framework does not allow computed blocks. Configurations that read `permissions.0.restricted` without declaring a `permissions` block must add one explicitly ([XXXX](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/XXXX))
+* `resource/pagerduty_incident_workflow_trigger`: `team_id = ""` alongside `restricted = false` is now rejected at plan time instead of being silently accepted ([XXXX](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/XXXX))
+* `resource/pagerduty_incident_workflow_trigger`: The error message for an invalid `type` value now follows the plugin-framework validator format instead of the previous SDKv2 wording ([XXXX](https://github.com/PagerDuty/terraform-provider-pagerduty/pull/XXXX))
+
 ## v3.35.0 (Aug 7, 2026)
 
 BREAKING CHANGES

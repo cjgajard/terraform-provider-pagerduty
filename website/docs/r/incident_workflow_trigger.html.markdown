@@ -48,31 +48,46 @@ resource "pagerduty_incident_workflow_trigger" "manual_trigger" {
   services   = [pagerduty_service.first_service.id]
 }
 
+resource "pagerduty_incident_type" "security" {
+  name         = "security_incident"
+  display_name = "Security Incident"
+  parent_type  = "incident_default"
+  enabled      = true
+}
+
+resource "pagerduty_incident_workflow_trigger" "incident_type_trigger" {
+  type                       = "incident_type"
+  workflow                   = pagerduty_incident_workflow.my_first_workflow.id
+  incident_types             = [pagerduty_incident_type.security.id]
+  subscribed_to_all_services = true
+}
+
 ```
 
 ## Argument Reference
 
 The following arguments are supported:
 
-* `type` - (Required) [Updating causes resource replacement] May be either `manual` or `conditional`.
+* `type` - (Required) [Updating causes resource replacement] May be `manual`, `conditional` or `incident_type`.
 * `workflow` - (Required) The workflow ID for the workflow to trigger.
 * `services` - (Optional) A list of service IDs. Incidents in any of the listed services are eligible to fire this trigger.
+* `incident_types` - (Optional) A list of incident type IDs. Incidents of any of the listed types are eligible to fire this trigger. Required for, and only allowed on, `incident_type`-type triggers.
 * `subscribed_to_all_services` - (Required) Set to `true` if the trigger should be eligible for firing on all services. Only allowed to be `true` if the services list is not defined or empty.
-* `permissions` - (Optional) Indicates who can start this Trigger. Applicable only to `manual`-type triggers.
+* `permissions` - (Optional) Indicates who can start this Trigger. Applicable only to `manual`-type triggers. Omitting this block entirely is different from an empty state: the block is only present in state when explicitly configured.
   * `restricted` - (Optional) If `true`, indicates that the Trigger can only be started by authorized Users. If `false` (default), any user can start this Trigger. Applicable only to `manual`-type triggers.
   * `team_id` - (Optional) The ID of the Team whose members can manually start this Trigger. Required and allowed only if `restricted` is `true`.
-* `condition` - (Required for `conditional`-type triggers) A [PCL](https://developer.pagerduty.com/docs/ZG9jOjM1NTE0MDc0-pcl-overview) condition string which must be satisfied for the trigger to fire.
+* `condition` - (Required for `conditional`-type triggers, not allowed for `manual`- or `incident_type`-type triggers) A [PCL](https://developer.pagerduty.com/docs/ZG9jOjM1NTE0MDc0-pcl-overview) condition string which must be satisfied for the trigger to fire.
 
 ## Attributes Reference
 
 The following attributes are exported:
 
-* `id` - The ID of the incident workflow.
+* `id` - The ID of the incident workflow trigger.
 
 ## Import
 
-Incident workflows can be imported using the `id`, e.g.
+Incident workflow triggers can be imported using the `id`, e.g.
 
 ```
-$ terraform import pagerduty_incident_workflow.pagerduty_incident_workflow_trigger PLBP09X
+$ terraform import pagerduty_incident_workflow_trigger.main PLBP09X
 ```

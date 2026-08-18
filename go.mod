@@ -76,3 +76,9 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
+
+// TODO(before merge): remove once the incident workflow trigger client lands
+// in a tagged/pseudo-versioned release of PagerDuty/go-pagerduty and go.mod
+// is bumped to point at it. Do not push this replace directive to a shared
+// branch: CI builds with -mod=vendor and has no ../go-pagerduty checkout.
+replace github.com/PagerDuty/go-pagerduty => ../go-pagerduty
